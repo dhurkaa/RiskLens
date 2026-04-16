@@ -1,112 +1,1043 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  type DimensionValue,
+} from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+import { supabase } from '../../lib/supabase';
 
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Fonts } from '@/constants/theme';
+const palette = {
+  bg: '#F4FAF7',
+  bg2: '#ECFDF3',
+  bg3: '#E6FFF1',
+  card: '#FFFFFF',
+  cardSoft: '#F8FFFB',
+  border: '#D9F7E5',
+  borderStrong: '#B7ECCC',
+  text: '#0F172A',
+  textSoft: '#334155',
+  textMuted: '#64748B',
+  primary: '#22C55E',
+  primary2: '#16A34A',
+  success: '#10B981',
+  warning: '#F59E0B',
+  danger: '#EF4444',
+  info: '#3B82F6',
+  purple: '#8B5CF6',
+  cyan: '#06B6D4',
+  greenSoft: '#ECFDF3',
+  blueSoft: '#EEF6FF',
+  redSoft: '#FFF0F0',
+  yellowSoft: '#FFF8DB',
+  purpleSoft: '#F5F3FF',
+};
 
-export default function TabTwoScreen() {
+type ProductRow = {
+  id: string;
+  name: string;
+  category?: string | null;
+  stock_quantity?: number | null;
+  min_stock_level?: number | null;
+  selling_price?: number | null;
+  cost_price?: number | null;
+  expiry_date?: string | null;
+  supplier_name?: string | null;
+};
+
+type AlertRow = {
+  id: string;
+  title: string;
+  description?: string | null;
+  severity?: 'low' | 'medium' | 'high' | null;
+  created_at?: string | null;
+  source_type?: string | null;
+};
+
+type RecommendationRow = {
+  id: string;
+  product_name: string;
+  recommendation_type: 'discount' | 'restock' | 'price_up' | 'price_down';
+  message: string;
+  impact_value?: number | null;
+  created_at?: string | null;
+};
+
+type CategoryInsight = {
+  category: string;
+  productCount: number;
+  nearExpiry: number;
+  lowStock: number;
+  weakMargin: number;
+  avgMargin: number;
+  riskScore: number;
+};
+
+type SupplierInsight = {
+  supplier: string;
+  productCount: number;
+  highRiskCount: number;
+  lowStockCount: number;
+  nearExpiryCount: number;
+};
+
+function safeNumber(value?: number | null) {
+  return Number(value || 0);
+}
+
+function formatCurrency(value?: number | null) {
+  return `€${safeNumber(value).toFixed(2)}`;
+}
+
+function formatCompactCurrency(value?: number | null) {
+  const n = safeNumber(value);
+  if (n >= 1000) return `€${(n / 1000).toFixed(1)}k`;
+  return `€${n.toFixed(0)}`;
+}
+
+function marginPercent(selling?: number | null, cost?: number | null) {
+  const s = safeNumber(selling);
+  const c = safeNumber(cost);
+  if (s <= 0) return 0;
+  return ((s - c) / s) * 100;
+}
+
+function daysUntil(dateString?: string | null) {
+  if (!dateString) return null;
+  const today = new Date();
+  const target = new Date(dateString);
+  today.setHours(0, 0, 0, 0);
+  target.setHours(0, 0, 0, 0);
+  const diff = target.getTime() - today.getTime();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+}
+
+function riskScore(item: ProductRow) {
+  const stock = safeNumber(item.stock_quantity);
+  const minStock = safeNumber(item.min_stock_level);
+  const expiry = daysUntil(item.expiry_date);
+  const margin = marginPercent(item.selling_price, item.cost_price);
+
+  let score = 0;
+
+  if (expiry !== null) {
+    if (expiry < 0) score += 50;
+    else if (expiry <= 2) score += 35;
+    else if (expiry <= 5) score += 25;
+    else if (expiry <= 7) score += 15;
+  }
+
+  if (minStock > 0 && stock <= minStock) score += 20;
+  if (stock <= 0) score += 25;
+  if (margin < 10) score += 15;
+  else if (margin < 15) score += 8;
+
+  return Math.min(100, score);
+}
+
+function Bar({
+  value,
+  max,
+  color,
+}: {
+  value: number;
+  max: number;
+  color: string;
+}) {
+  const widthPercent: DimensionValue =
+  max > 0 ? `${(value / max) * 100}%` : '0%';
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+    <View style={styles.barTrack}>
+      <View style={[styles.barFill, { width: widthPercent, backgroundColor: color }]} />
+    </View>
+  );
+}
+
+function InsightStat({
+  title,
+  value,
+  subtitle,
+  icon,
+  tone = 'green',
+}: {
+  title: string;
+  value: string;
+  subtitle: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  tone?: 'green' | 'yellow' | 'red' | 'blue' | 'purple' | 'cyan';
+}) {
+  const bgMap = {
+    green: palette.greenSoft,
+    yellow: palette.yellowSoft,
+    red: palette.redSoft,
+    blue: palette.blueSoft,
+    purple: palette.purpleSoft,
+    cyan: '#E9FCFF',
+  } as const;
+
+  const colorMap = {
+    green: palette.primary2,
+    yellow: palette.warning,
+    red: palette.danger,
+    blue: palette.info,
+    purple: palette.purple,
+    cyan: palette.cyan,
+  } as const;
+
+  return (
+    <View style={styles.statCard}>
+      <View style={[styles.statIconWrap, { backgroundColor: bgMap[tone] }]}>
+        <Ionicons name={icon} size={18} color={colorMap[tone]} />
+      </View>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statTitle}>{title}</Text>
+      <Text style={styles.statSubtitle}>{subtitle}</Text>
+    </View>
+  );
+}
+
+function SectionHeader({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      <Text style={styles.sectionSubtitle}>{subtitle}</Text>
+    </View>
+  );
+}
+
+export default function InsightsScreen() {
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [products, setProducts] = useState<ProductRow[]>([]);
+  const [alerts, setAlerts] = useState<AlertRow[]>([]);
+  const [recommendations, setRecommendations] = useState<RecommendationRow[]>([]);
+
+  const loadInsights = useCallback(async (isRefresh = false) => {
+    try {
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        router.replace('/login');
+        return;
+      }
+
+      const [productsRes, alertsRes, recsRes] = await Promise.all([
+        supabase
+          .from('food_products')
+          .select('id, name, category, stock_quantity, min_stock_level, selling_price, cost_price, expiry_date, supplier_name')
+          .eq('user_id', user.id),
+
+        supabase
+          .from('food_alerts')
+          .select('id, title, description, severity, created_at, source_type')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false }),
+
+        supabase
+          .from('food_recommendations')
+          .select('id, product_name, recommendation_type, message, impact_value, created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false }),
+      ]);
+
+      if (!productsRes.error) setProducts((productsRes.data as ProductRow[]) || []);
+      if (!alertsRes.error) setAlerts((alertsRes.data as AlertRow[]) || []);
+      if (!recsRes.error) setRecommendations((recsRes.data as RecommendationRow[]) || []);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadInsights();
+  }, [loadInsights]);
+
+  const overview = useMemo(() => {
+    const totalProducts = products.length;
+    const totalAlerts = alerts.length;
+    const totalRecommendations = recommendations.length;
+
+    const highRiskProducts = products.filter((p) => riskScore(p) >= 70).length;
+    const nearExpiryProducts = products.filter((p) => {
+      const d = daysUntil(p.expiry_date);
+      return d !== null && d >= 0 && d <= 7;
+    }).length;
+
+    const weakMarginProducts = products.filter(
+      (p) => marginPercent(p.selling_price, p.cost_price) < 15
+    ).length;
+
+    const estimatedWasteExposure = products.reduce((sum, p) => {
+      const d = daysUntil(p.expiry_date);
+      const stock = safeNumber(p.stock_quantity);
+      if (d !== null && d >= 0 && d <= 5) {
+        return sum + stock * safeNumber(p.cost_price);
+      }
+      return sum;
+    }, 0);
+
+    const recommendationImpact = recommendations.reduce(
+      (sum, r) => sum + safeNumber(r.impact_value),
+      0
+    );
+
+    return {
+      totalProducts,
+      totalAlerts,
+      totalRecommendations,
+      highRiskProducts,
+      nearExpiryProducts,
+      weakMarginProducts,
+      estimatedWasteExposure,
+      recommendationImpact,
+    };
+  }, [products, alerts, recommendations]);
+
+  const categoryInsights = useMemo(() => {
+    const map = new Map<string, CategoryInsight>();
+
+    for (const p of products) {
+      const category = p.category?.trim() || 'Uncategorized';
+      const current = map.get(category) || {
+        category,
+        productCount: 0,
+        nearExpiry: 0,
+        lowStock: 0,
+        weakMargin: 0,
+        avgMargin: 0,
+        riskScore: 0,
+      };
+
+      current.productCount += 1;
+      const d = daysUntil(p.expiry_date);
+      const stock = safeNumber(p.stock_quantity);
+      const minStock = safeNumber(p.min_stock_level);
+      const margin = marginPercent(p.selling_price, p.cost_price);
+      const risk = riskScore(p);
+
+      if (d !== null && d >= 0 && d <= 7) current.nearExpiry += 1;
+      if (minStock > 0 ? stock <= minStock : stock <= 10) current.lowStock += 1;
+      if (margin < 15) current.weakMargin += 1;
+
+      current.avgMargin += margin;
+      current.riskScore += risk;
+
+      map.set(category, current);
+    }
+
+    return Array.from(map.values())
+      .map((item) => ({
+        ...item,
+        avgMargin: item.productCount ? item.avgMargin / item.productCount : 0,
+        riskScore: item.productCount ? item.riskScore / item.productCount : 0,
+      }))
+      .sort((a, b) => b.riskScore - a.riskScore);
+  }, [products]);
+
+  const supplierInsights = useMemo(() => {
+    const map = new Map<string, SupplierInsight>();
+
+    for (const p of products) {
+      const supplier = p.supplier_name?.trim() || 'Unknown Supplier';
+      const current = map.get(supplier) || {
+        supplier,
+        productCount: 0,
+        highRiskCount: 0,
+        lowStockCount: 0,
+        nearExpiryCount: 0,
+      };
+
+      const r = riskScore(p);
+      const d = daysUntil(p.expiry_date);
+      const stock = safeNumber(p.stock_quantity);
+      const minStock = safeNumber(p.min_stock_level);
+
+      current.productCount += 1;
+      if (r >= 70) current.highRiskCount += 1;
+      if (minStock > 0 ? stock <= minStock : stock <= 10) current.lowStockCount += 1;
+      if (d !== null && d >= 0 && d <= 7) current.nearExpiryCount += 1;
+
+      map.set(supplier, current);
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.highRiskCount - a.highRiskCount);
+  }, [products]);
+
+  const recommendationGroups = useMemo(() => {
+    return {
+      discount: recommendations.filter((r) => r.recommendation_type === 'discount'),
+      restock: recommendations.filter((r) => r.recommendation_type === 'restock'),
+      priceUp: recommendations.filter((r) => r.recommendation_type === 'price_up'),
+      priceDown: recommendations.filter((r) => r.recommendation_type === 'price_down'),
+    };
+  }, [recommendations]);
+
+  const alertSeveritySummary = useMemo(() => {
+    return {
+      high: alerts.filter((a) => a.severity === 'high').length,
+      medium: alerts.filter((a) => a.severity === 'medium').length,
+      low: alerts.filter((a) => a.severity === 'low').length,
+    };
+  }, [alerts]);
+
+  const maxCategoryRisk = Math.max(
+    ...categoryInsights.map((c) => c.riskScore),
+    1
+  );
+
+  const maxSupplierRisk = Math.max(
+    ...supplierInsights.map((s) => s.highRiskCount),
+    1
+  );
+
+  const onRefresh = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await loadInsights(true);
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <LinearGradient colors={[palette.bg, palette.bg2, palette.bg3]} style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={palette.primary2} />
+          <Text style={styles.loadingText}>Loading insights...</Text>
+        </LinearGradient>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <LinearGradient colors={[palette.bg, palette.bg2, palette.bg3]} style={styles.container}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={palette.primary2}
+            />
+          }
+        >
+          <LinearGradient
+            colors={['#E7FFF1', '#D9FCE7', '#F6FFF9']}
+            style={styles.heroCard}
+          >
+            <View style={styles.heroTop}>
+              <View style={styles.heroIconWrap}>
+                <MaterialCommunityIcons name="chart-line" size={24} color={palette.primary2} />
+              </View>
+
+              <TouchableOpacity
+                style={styles.heroButton}
+                onPress={() => router.push('/(tabs)/products')}
+              >
+                <Feather name="box" size={18} color={palette.primary2} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.heroTitle}>Insights</Text>
+            <Text style={styles.heroSubtitle}>
+              Advanced food business analysis for expiry risk, stock pressure, weak margins, supplier risk, and recommendation impact.
+            </Text>
+          </LinearGradient>
+
+          <View style={styles.statsGrid}>
+            <InsightStat
+              title="Products"
+              value={`${overview.totalProducts}`}
+              subtitle="Tracked inventory items"
+              icon="basket-outline"
+              tone="green"
+            />
+            <InsightStat
+              title="High risk"
+              value={`${overview.highRiskProducts}`}
+              subtitle="Require immediate action"
+              icon="warning-outline"
+              tone="red"
+            />
+            <InsightStat
+              title="Near expiry"
+              value={`${overview.nearExpiryProducts}`}
+              subtitle="Within 7 days"
+              icon="time-outline"
+              tone="yellow"
+            />
+            <InsightStat
+              title="Weak margin"
+              value={`${overview.weakMarginProducts}`}
+              subtitle="Below healthy threshold"
+              icon="cash-outline"
+              tone="blue"
+            />
+            <InsightStat
+              title="Waste exposure"
+              value={formatCompactCurrency(overview.estimatedWasteExposure)}
+              subtitle="At cost basis"
+              icon="trash-outline"
+              tone="purple"
+            />
+            <InsightStat
+              title="Recommendation impact"
+              value={formatCompactCurrency(overview.recommendationImpact)}
+              subtitle="Estimated opportunity"
+              icon="sparkles-outline"
+              tone="cyan"
+            />
+          </View>
+
+          <SectionHeader
+            title="Category pressure"
+            subtitle="Which categories carry the most risk"
+          />
+
+          <View style={styles.cardBlock}>
+            {categoryInsights.length > 0 ? (
+              categoryInsights.slice(0, 8).map((category) => (
+                <View key={category.category} style={styles.insightRowCard}>
+                  <View style={styles.insightRowTop}>
+                    <Text style={styles.insightRowTitle}>{category.category}</Text>
+                    <Text style={styles.insightRowValue}>
+                      Risk {category.riskScore.toFixed(0)}%
+                    </Text>
+                  </View>
+
+                  <Bar
+                    value={category.riskScore}
+                    max={maxCategoryRisk}
+                    color={palette.warning}
+                  />
+
+                  <View style={styles.metricRow}>
+                    <Text style={styles.metricText}>{category.productCount} products</Text>
+                    <Text style={styles.metricText}>{category.nearExpiry} expiring</Text>
+                    <Text style={styles.metricText}>{category.lowStock} low stock</Text>
+                    <Text style={styles.metricText}>{category.avgMargin.toFixed(0)}% margin</Text>
+                  </View>
+                </View>
+              ))
+            ) : (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No category insights yet</Text>
+                <Text style={styles.emptySubtitle}>
+                  Upload product data to unlock category analytics.
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <SectionHeader
+            title="Supplier risk"
+            subtitle="Suppliers associated with pressure points"
+          />
+
+          <View style={styles.cardBlock}>
+            {supplierInsights.length > 0 ? (
+              supplierInsights.slice(0, 8).map((supplier) => (
+                <View key={supplier.supplier} style={styles.insightRowCard}>
+                  <View style={styles.insightRowTop}>
+                    <Text style={styles.insightRowTitle}>{supplier.supplier}</Text>
+                    <Text style={styles.insightRowValue}>
+                      {supplier.highRiskCount} high risk
+                    </Text>
+                  </View>
+
+                  <Bar
+                    value={supplier.highRiskCount}
+                    max={maxSupplierRisk}
+                    color={palette.danger}
+                  />
+
+                  <View style={styles.metricRow}>
+                    <Text style={styles.metricText}>{supplier.productCount} products</Text>
+                    <Text style={styles.metricText}>{supplier.lowStockCount} low stock</Text>
+                    <Text style={styles.metricText}>{supplier.nearExpiryCount} expiring</Text>
+                  </View>
+                </View>
+              ))
+            ) : (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No supplier insights yet</Text>
+                <Text style={styles.emptySubtitle}>
+                  Supplier intelligence will appear after uploads.
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <SectionHeader
+            title="Alert severity breakdown"
+            subtitle="How serious current issues are"
+          />
+
+          <View style={styles.breakdownCard}>
+            <View style={styles.breakdownItem}>
+              <View style={[styles.breakdownIcon, { backgroundColor: palette.redSoft }]}>
+                <Ionicons name="alert-circle-outline" size={18} color={palette.danger} />
+              </View>
+              <Text style={styles.breakdownValue}>{alertSeveritySummary.high}</Text>
+              <Text style={styles.breakdownLabel}>High</Text>
+            </View>
+
+            <View style={styles.breakdownItem}>
+              <View style={[styles.breakdownIcon, { backgroundColor: palette.yellowSoft }]}>
+                <Ionicons name="warning-outline" size={18} color={palette.warning} />
+              </View>
+              <Text style={styles.breakdownValue}>{alertSeveritySummary.medium}</Text>
+              <Text style={styles.breakdownLabel}>Medium</Text>
+            </View>
+
+            <View style={styles.breakdownItem}>
+              <View style={[styles.breakdownIcon, { backgroundColor: palette.blueSoft }]}>
+                <Ionicons name="information-circle-outline" size={18} color={palette.info} />
+              </View>
+              <Text style={styles.breakdownValue}>{alertSeveritySummary.low}</Text>
+              <Text style={styles.breakdownLabel}>Low</Text>
+            </View>
+          </View>
+
+          <SectionHeader
+            title="Recommendation mix"
+            subtitle="What actions the system is suggesting"
+          />
+
+          <View style={styles.recommendationGrid}>
+            <View style={styles.recCard}>
+              <Text style={styles.recValue}>{recommendationGroups.discount.length}</Text>
+              <Text style={styles.recTitle}>Discount</Text>
+            </View>
+            <View style={styles.recCard}>
+              <Text style={styles.recValue}>{recommendationGroups.restock.length}</Text>
+              <Text style={styles.recTitle}>Restock</Text>
+            </View>
+            <View style={styles.recCard}>
+              <Text style={styles.recValue}>{recommendationGroups.priceUp.length}</Text>
+              <Text style={styles.recTitle}>Price Up</Text>
+            </View>
+            <View style={styles.recCard}>
+              <Text style={styles.recValue}>{recommendationGroups.priceDown.length}</Text>
+              <Text style={styles.recTitle}>Price Down</Text>
+            </View>
+          </View>
+
+          <SectionHeader
+            title="Top recommendation opportunities"
+            subtitle="Highest estimated impact items"
+          />
+
+          <View style={styles.cardBlock}>
+            {recommendations.length > 0 ? (
+              [...recommendations]
+                .sort((a, b) => safeNumber(b.impact_value) - safeNumber(a.impact_value))
+                .slice(0, 8)
+                .map((rec) => (
+                  <View key={rec.id} style={styles.opportunityCard}>
+                    <View style={styles.opportunityLeft}>
+                      <View style={styles.opportunityIconWrap}>
+                        <Ionicons name="sparkles-outline" size={18} color={palette.primary2} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.opportunityTitle}>{rec.product_name}</Text>
+                        <Text style={styles.opportunityMessage}>{rec.message}</Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.opportunityRight}>
+                      <Text style={styles.opportunityValue}>
+                        {formatCompactCurrency(rec.impact_value)}
+                      </Text>
+                      <Text style={styles.opportunityType}>{rec.recommendation_type}</Text>
+                    </View>
+                  </View>
+                ))
+            ) : (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No recommendation opportunities yet</Text>
+                <Text style={styles.emptySubtitle}>
+                  Upload products to generate recommendation analytics.
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <SectionHeader
+            title="Business interpretation"
+            subtitle="What these insights mean"
+          />
+
+          <View style={styles.summaryNarrativeCard}>
+            <Text style={styles.summaryNarrativeText}>
+              {overview.highRiskProducts > 0
+                ? `You currently have ${overview.highRiskProducts} high-risk products. `
+                : 'You currently have no high-risk products. '}
+              {overview.nearExpiryProducts > 0
+                ? `${overview.nearExpiryProducts} items are approaching expiry, which increases waste pressure. `
+                : 'Expiry pressure is currently low. '}
+              {overview.weakMarginProducts > 0
+                ? `${overview.weakMarginProducts} items have weak margin and may need pricing review. `
+                : 'Margin health looks stable across products. '}
+              Estimated waste exposure is {formatCurrency(overview.estimatedWasteExposure)}, while recommendation impact is currently estimated at {formatCurrency(overview.recommendationImpact)}.
+            </Text>
+          </View>
+
+          <View style={{ height: 30 }} />
+        </ScrollView>
+      </LinearGradient>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  safeArea: {
+    flex: 1,
+    backgroundColor: palette.bg,
   },
-  titleContainer: {
+  container: {
+    flex: 1,
+  },
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginTop: 14,
+    color: palette.textSoft,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  scrollContent: {
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 24,
+  },
+
+  heroCard: {
+    borderRadius: 28,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+    marginBottom: 18,
+  },
+  heroTop: {
     flexDirection: 'row',
-    gap: 8,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  heroIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+  },
+  heroButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#FFFFFFCC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+  },
+  heroTitle: {
+    marginTop: 18,
+    color: palette.text,
+    fontSize: 28,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  heroSubtitle: {
+    color: palette.textMuted,
+    fontSize: 14,
+    lineHeight: 22,
+    fontWeight: '500',
+  },
+
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 18,
+  },
+  statCard: {
+    width: '48.2%',
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  statIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  statValue: {
+    color: palette.text,
+    fontSize: 24,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  statTitle: {
+    color: palette.textSoft,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  statSubtitle: {
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 6,
+  },
+
+  sectionHeader: {
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    color: palette.text,
+    fontSize: 19,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+
+  cardBlock: {
+    gap: 12,
+    marginBottom: 18,
+  },
+  insightRowCard: {
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  insightRowTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    gap: 12,
+  },
+  insightRowTitle: {
+    color: palette.text,
+    fontSize: 15,
+    fontWeight: '900',
+    flex: 1,
+  },
+  insightRowValue: {
+    color: palette.textSoft,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  barTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#ECF2EE',
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  barFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  metricRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  metricText: {
+    color: palette.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+  breakdownCard: {
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    marginBottom: 18,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  breakdownItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  breakdownIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  breakdownValue: {
+    color: palette.text,
+    fontSize: 24,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  breakdownLabel: {
+    color: palette.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+
+  recommendationGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 18,
+  },
+  recCard: {
+    width: '48.2%',
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    alignItems: 'center',
+  },
+  recValue: {
+    color: palette.text,
+    fontSize: 26,
+    fontWeight: '900',
+    marginBottom: 6,
+  },
+  recTitle: {
+    color: palette.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+
+  opportunityCard: {
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  opportunityLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    paddingRight: 12,
+  },
+  opportunityIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: palette.greenSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  opportunityTitle: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  opportunityMessage: {
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  opportunityRight: {
+    alignItems: 'flex-end',
+  },
+  opportunityValue: {
+    color: palette.primary2,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  opportunityType: {
+    color: palette.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
+  summaryNarrativeCard: {
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  summaryNarrativeText: {
+    color: palette.textSoft,
+    fontSize: 14,
+    lineHeight: 22,
+    fontWeight: '600',
+  },
+
+  emptyCard: {
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 22,
+    alignItems: 'center',
+  },
+  emptyTitle: {
+    color: palette.text,
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 6,
+  },
+  emptySubtitle: {
+    color: palette.textMuted,
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 19,
+    fontWeight: '500',
   },
 });

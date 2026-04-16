@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,291 +9,235 @@ import {
   Text,
   TouchableOpacity,
   View,
-  Platform,
-  Animated,
   Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import Svg, { Circle } from 'react-native-svg';
 import { supabase } from '../../lib/supabase';
-import * as Animatable from 'react-native-animatable';
 
-// ==================== EXISTING PALETTE (unchanged) ====================
+const { width } = Dimensions.get('window');
+const cardGap = 12;
+const cardWidth = (width - 18 * 2 - cardGap - 4) / 2;
+
 const palette = {
-  bg: '#0B1016',
-  bg2: '#101826',
-  card: '#131C27',
-  card2: '#182232',
-  card3: '#1C293B',
-  input: '#192433',
-  border: 'rgba(255,255,255,0.08)',
-  text: '#F8FAFC',
-  textSoft: '#CBD5E1',
-  textMuted: '#94A3B8',
-  primary: '#3B82F6',
-  primary2: '#2563EB',
-  primarySoft: '#93C5FD',
+  bg: '#F4FAF7',
+  bg2: '#ECFDF3',
+  bg3: '#E6FFF1',
+  card: '#FFFFFF',
+  cardSoft: '#F8FFFB',
+  cardMint: '#F0FFF7',
+  border: '#D9F7E5',
+  borderStrong: '#B7ECCC',
+  text: '#0F172A',
+  textSoft: '#334155',
+  textMuted: '#64748B',
+  primary: '#22C55E',
+  primary2: '#16A34A',
+  primary3: '#4ADE80',
   success: '#10B981',
   warning: '#F59E0B',
   danger: '#EF4444',
+  info: '#3B82F6',
   purple: '#8B5CF6',
   cyan: '#06B6D4',
+  pink: '#EC4899',
+  orange: '#F97316',
+  yellowSoft: '#FFF8DB',
+  redSoft: '#FFF0F0',
+  greenSoft: '#ECFDF3',
+  blueSoft: '#EEF6FF',
+  purpleSoft: '#F5F3FF',
 };
 
-// ==================== EXISTING TYPES ====================
-type DashboardProfile = {
+type Profile = {
   id: string;
   full_name?: string | null;
-  company?: string | null;
+  business_name?: string | null;
 };
 
-type UploadItem = {
+type ProductRow = {
   id: string;
-  file_name: string;
-  created_at: string;
-  status?: string | null;
-  file_size?: number | null;
-  row_count?: number | null;
-};
-
-type AnalysisItem = {
-  id: string;
-  created_at: string;
-  risk_score?: number | null;
-  summary?: string | null;
-  upload_id?: string | null;
-  status?: string | null;
-  confidence_score?: number | null;
-  anomaly_count?: number | null;
-  recommendation_count?: number | null;
-};
-
-type ReportItem = {
-  id: string;
-  title?: string | null;
-  created_at: string;
-  status?: string | null;
-  report_type?: string | null;
-};
-
-type MarketRow = {
-  id: string;
+  name: string;
   category?: string | null;
-  avg_market_price?: number | null;
-  min_price?: number | null;
-  max_price?: number | null;
-  updated_at?: string | null;
+  sku?: string | null;
+  barcode?: string | null;
+  stock_quantity?: number | null;
+  min_stock_level?: number | null;
+  selling_price?: number | null;
+  cost_price?: number | null;
+  expiry_date?: string | null;
+  supplier_name?: string | null;
+  status?: string | null;
 };
 
-type AlertItem = {
+type AlertRow = {
   id: string;
   title: string;
-  description: string;
-  severity: 'low' | 'medium' | 'high';
+  description?: string | null;
+  severity?: 'low' | 'medium' | 'high' | null;
+  created_at?: string | null;
 };
 
-type DashboardStats = {
-  totalUploads: number;
-  totalAnalyses: number;
-  completedReports: number;
-  avgRiskScore: number;
-  avgConfidence: number;
-  activeAlerts: number;
+type RecommendationRow = {
+  id: string;
+  product_name: string;
+  recommendation_type: 'discount' | 'restock' | 'price_up' | 'price_down';
+  message: string;
+  impact_value?: number | null;
+  created_at?: string | null;
 };
 
-// ==================== EXISTING UTILITIES ====================
-const statusColorMap: Record<string, string> = {
-  completed: palette.success,
-  complete: palette.success,
-  success: palette.success,
-  processing: palette.warning,
-  pending: palette.warning,
-  queued: palette.warning,
-  failed: palette.danger,
-  error: palette.danger,
+type CategoryMetric = {
+  name: string;
+  product_count: number;
+  total_stock: number;
+  avg_margin: number;
+  near_expiry_count: number;
 };
 
-function formatDate(dateString?: string | null) {
-  if (!dateString) return '—';
-  const date = new Date(dateString);
-  return date.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
+function formatCurrency(value?: number | null) {
+  const safe = Number(value || 0);
+  return `€${safe.toFixed(2)}`;
 }
 
-function formatDateTime(dateString?: string | null) {
-  if (!dateString) return '—';
-  const date = new Date(dateString);
-  return date.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+function formatCompactCurrency(value?: number | null) {
+  const safe = Number(value || 0);
+  if (safe >= 1000) return `€${(safe / 1000).toFixed(1)}k`;
+  return `€${safe.toFixed(0)}`;
 }
 
-function formatCompactNumber(value?: number | null) {
-  if (value === null || value === undefined || Number.isNaN(value)) return '0';
-  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
-  return `${Math.round(value)}`;
+function formatDate(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return date.toLocaleDateString();
 }
 
-function formatPercent(value?: number | null) {
-  if (value === null || value === undefined || Number.isNaN(value)) return '0%';
-  return `${Math.round(value)}%`;
-}
-
-function formatFileSize(bytes?: number | null) {
-  if (!bytes || bytes <= 0) return '—';
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${bytes} B`;
-}
-
-function scoreTone(score?: number | null) {
-  const safe = score ?? 0;
-  if (safe >= 75) return { label: 'High', color: palette.danger };
-  if (safe >= 45) return { label: 'Medium', color: palette.warning };
-  return { label: 'Low', color: palette.success };
-}
-
-function confidenceTone(score?: number | null) {
-  const safe = score ?? 0;
-  if (safe >= 80) return { label: 'Strong', color: palette.success };
-  if (safe >= 55) return { label: 'Moderate', color: palette.warning };
-  return { label: 'Weak', color: palette.danger };
-}
-
-function dedupeAlerts(alerts: AlertItem[]) {
-  const seen = new Set<string>();
-  return alerts.filter((item) => {
-    const key = `${item.title}-${item.description}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function buildAlerts(
-  uploads: UploadItem[],
-  analyses: AnalysisItem[],
-  reports: ReportItem[]
-): AlertItem[] {
-  const alerts: AlertItem[] = [];
-
-  const failedUploads = uploads.filter(
-    (item) => item.status?.toLowerCase() === 'failed'
-  );
-  failedUploads.forEach((item) => {
-    alerts.push({
-      id: `upload-${item.id}`,
-      title: 'Upload failed',
-      description: `${item.file_name} needs attention before analysis can continue.`,
-      severity: 'high',
-    });
-  });
-
-  const riskyAnalyses = analyses.filter((item) => (item.risk_score ?? 0) >= 70);
-  riskyAnalyses.forEach((item) => {
-    alerts.push({
-      id: `analysis-risk-${item.id}`,
-      title: 'High risk detected',
-      description: `An analysis generated a high risk score of ${Math.round(
-        item.risk_score || 0
-      )}%.`,
-      severity: 'high',
-    });
-  });
-
-  const lowConfidence = analyses.filter(
-    (item) => (item.confidence_score ?? 0) > 0 && (item.confidence_score ?? 0) < 50
-  );
-  lowConfidence.forEach((item) => {
-    alerts.push({
-      id: `analysis-confidence-${item.id}`,
-      title: 'Low confidence insight',
-      description: `One AI analysis returned only ${Math.round(
-        item.confidence_score || 0
-      )}% confidence.`,
-      severity: 'medium',
-    });
-  });
-
-  const pendingReports = reports.filter((item) =>
-    ['pending', 'processing', 'queued'].includes((item.status || '').toLowerCase())
-  );
-  pendingReports.slice(0, 3).forEach((item) => {
-    alerts.push({
-      id: `report-${item.id}`,
-      title: 'Report still processing',
-      description: `${item.title || 'Untitled report'} is still being prepared.`,
-      severity: 'low',
-    });
-  });
-
-  return dedupeAlerts(alerts).slice(0, 6);
-}
-
-function computeStats(
-  uploads: UploadItem[],
-  analyses: AnalysisItem[],
-  reports: ReportItem[],
-  alerts: AlertItem[]
-): DashboardStats {
-  const avgRiskScore =
-    analyses.length > 0
-      ? analyses.reduce((sum, item) => sum + (item.risk_score || 0), 0) / analyses.length
-      : 0;
-
-  const analysesWithConfidence = analyses.filter(
-    (item) => item.confidence_score !== null && item.confidence_score !== undefined
-  );
-
-  const avgConfidence =
-    analysesWithConfidence.length > 0
-      ? analysesWithConfidence.reduce(
-          (sum, item) => sum + (item.confidence_score || 0),
-          0
-        ) / analysesWithConfidence.length
-      : 0;
-
-  return {
-    totalUploads: uploads.length,
-    totalAnalyses: analyses.length,
-    completedReports: reports.filter((r) =>
-      ['completed', 'complete', 'success'].includes((r.status || '').toLowerCase())
-    ).length,
-    avgRiskScore,
-    avgConfidence,
-    activeAlerts: alerts.length,
-  };
+function daysUntil(dateString?: string | null) {
+  if (!dateString) return null;
+  const today = new Date();
+  const target = new Date(dateString);
+  today.setHours(0, 0, 0, 0);
+  target.setHours(0, 0, 0, 0);
+  const diff = target.getTime() - today.getTime();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
 function initials(name?: string | null) {
   if (!name) return 'RL';
   const parts = name.trim().split(' ').filter(Boolean);
-  if (parts.length === 0) return 'RL';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
 }
 
-// ==================== EXISTING COMPONENTS (unchanged) ====================
+function safeNumber(value?: number | null) {
+  return Number(value || 0);
+}
+
+function marginPercent(selling?: number | null, cost?: number | null) {
+  const s = safeNumber(selling);
+  const c = safeNumber(cost);
+  if (s <= 0) return 0;
+  return ((s - c) / s) * 100;
+}
+
+function severityColor(severity?: string | null) {
+  if (severity === 'high') return palette.danger;
+  if (severity === 'medium') return palette.warning;
+  return palette.info;
+}
+
+function severityBg(severity?: string | null) {
+  if (severity === 'high') return palette.redSoft;
+  if (severity === 'medium') return palette.yellowSoft;
+  return palette.blueSoft;
+}
+
+function recommendationColor(type: RecommendationRow['recommendation_type']) {
+  if (type === 'discount') return palette.orange;
+  if (type === 'restock') return palette.info;
+  if (type === 'price_up') return palette.success;
+  return palette.purple;
+}
+
+function recommendationIcon(type: RecommendationRow['recommendation_type']) {
+  if (type === 'discount') return 'pricetag-outline';
+  if (type === 'restock') return 'cube-outline';
+  if (type === 'price_up') return 'trending-up-outline';
+  return 'trending-down-outline';
+}
+
+function riskScoreForProduct(item: ProductRow) {
+  const stock = safeNumber(item.stock_quantity);
+  const minStock = safeNumber(item.min_stock_level);
+  const expiry = daysUntil(item.expiry_date);
+  let score = 0;
+
+  if (expiry !== null) {
+    if (expiry <= 0) score += 45;
+    else if (expiry <= 2) score += 35;
+    else if (expiry <= 5) score += 25;
+    else if (expiry <= 7) score += 15;
+  }
+
+  if (minStock > 0 && stock <= minStock) score += 20;
+  if (stock <= 5) score += 20;
+  if (marginPercent(item.selling_price, item.cost_price) < 15) score += 10;
+
+  return Math.min(100, score);
+}
+
+function progressColor(value: number) {
+  if (value >= 70) return palette.danger;
+  if (value >= 40) return palette.warning;
+  return palette.success;
+}
+
+function buildCategoryMetrics(products: ProductRow[]): CategoryMetric[] {
+  const map = new Map<string, CategoryMetric>();
+
+  for (const product of products) {
+    const category = product.category?.trim() || 'Uncategorized';
+    const current = map.get(category) || {
+      name: category,
+      product_count: 0,
+      total_stock: 0,
+      avg_margin: 0,
+      near_expiry_count: 0,
+    };
+
+    current.product_count += 1;
+    current.total_stock += safeNumber(product.stock_quantity);
+    current.avg_margin += marginPercent(product.selling_price, product.cost_price);
+
+    const expiry = daysUntil(product.expiry_date);
+    if (expiry !== null && expiry >= 0 && expiry <= 7) {
+      current.near_expiry_count += 1;
+    }
+
+    map.set(category, current);
+  }
+
+  return Array.from(map.values())
+    .map((item) => ({
+      ...item,
+      avg_margin: item.product_count ? item.avg_margin / item.product_count : 0,
+    }))
+    .sort((a, b) => b.product_count - a.product_count);
+}
+
 function SectionHeader({
   title,
   subtitle,
+  actionLabel,
   onPress,
-  actionLabel = 'View all',
 }: {
   title: string;
   subtitle?: string;
-  onPress?: () => void;
   actionLabel?: string;
+  onPress?: () => void;
 }) {
   return (
     <View style={styles.sectionHeader}>
@@ -301,10 +245,10 @@ function SectionHeader({
         <Text style={styles.sectionTitle}>{title}</Text>
         {!!subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}
       </View>
-      {onPress ? (
+      {actionLabel && onPress ? (
         <TouchableOpacity onPress={onPress} style={styles.sectionAction}>
           <Text style={styles.sectionActionText}>{actionLabel}</Text>
-          <Ionicons name="arrow-forward" size={14} color={palette.primarySoft} />
+          <Ionicons name="arrow-forward" size={14} color={palette.primary2} />
         </TouchableOpacity>
       ) : null}
     </View>
@@ -314,443 +258,463 @@ function SectionHeader({
 function StatCard({
   title,
   value,
+  subtitle,
   icon,
   tone = 'primary',
-  footnote,
 }: {
   title: string;
   value: string;
+  subtitle: string;
   icon: React.ComponentProps<typeof Ionicons>['name'];
-  tone?: 'primary' | 'success' | 'warning' | 'danger' | 'purple' | 'cyan';
-  footnote?: string;
+  tone?: 'primary' | 'success' | 'warning' | 'danger' | 'info' | 'purple' | 'cyan';
 }) {
   const toneMap = {
     primary: [palette.primary, palette.primary2],
-    success: [palette.success, '#0E9F6E'],
+    success: [palette.success, '#059669'],
     warning: [palette.warning, '#D97706'],
     danger: [palette.danger, '#DC2626'],
+    info: [palette.info, '#2563EB'],
     purple: [palette.purple, '#7C3AED'],
     cyan: [palette.cyan, '#0891B2'],
   } as const;
 
   return (
     <View style={styles.statCard}>
-      <LinearGradient
-        colors={toneMap[tone]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.statIconWrap}
-      >
-        <Ionicons name={icon} size={18} color="#FFFFFF" />
+      <LinearGradient colors={toneMap[tone]} style={styles.statIconWrap}>
+        <Ionicons name={icon} size={18} color="#fff" />
       </LinearGradient>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statTitle}>{title}</Text>
-      {!!footnote && <Text style={styles.statFootnote}>{footnote}</Text>}
+      <Text style={styles.statSubtitle}>{subtitle}</Text>
     </View>
   );
 }
 
-function QuickActionCard({
-  title,
-  subtitle,
-  icon,
-  onPress,
-  tone = 'primary',
-}: {
-  title: string;
-  subtitle: string;
-  icon: React.ComponentProps<typeof Ionicons>['name'];
-  onPress: () => void;
-  tone?: 'primary' | 'success' | 'warning' | 'purple';
-}) {
-  const bgMap = {
-    primary: 'rgba(59,130,246,0.12)',
-    success: 'rgba(16,185,129,0.12)',
-    warning: 'rgba(245,158,11,0.12)',
-    purple: 'rgba(139,92,246,0.12)',
-  } as const;
-
-  const iconMap = {
-    primary: palette.primarySoft,
-    success: palette.success,
-    warning: palette.warning,
-    purple: palette.purple,
-  } as const;
-
-  return (
-    <TouchableOpacity
-      style={styles.quickActionCard}
-      activeOpacity={0.9}
-      onPress={onPress}
-    >
-      <View style={[styles.quickActionIconWrap, { backgroundColor: bgMap[tone] }]}>
-        <Ionicons name={icon} size={20} color={iconMap[tone]} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.quickActionTitle}>{title}</Text>
-        <Text style={styles.quickActionSubtitle}>{subtitle}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={palette.textMuted} />
-    </TouchableOpacity>
-  );
-}
-
-function EmptyStateCard({
-  icon,
-  title,
-  subtitle,
-  actionLabel,
-  onPress,
-}: {
-  icon: React.ComponentProps<typeof Ionicons>['name'];
-  title: string;
-  subtitle: string;
-  actionLabel?: string;
-  onPress?: () => void;
-}) {
-  return (
-    <View style={styles.emptyCard}>
-      <View style={styles.emptyIconWrap}>
-        <Ionicons name={icon} size={22} color={palette.primarySoft} />
-      </View>
-      <Text style={styles.emptyTitle}>{title}</Text>
-      <Text style={styles.emptySubtitle}>{subtitle}</Text>
-      {actionLabel && onPress ? (
-        <TouchableOpacity style={styles.emptyAction} onPress={onPress}>
-          <Text style={styles.emptyActionText}>{actionLabel}</Text>
-        </TouchableOpacity>
-      ) : null}
-    </View>
-  );
-}
-
-function UploadRow({
-  item,
-  onPress,
-}: {
-  item: UploadItem;
-  onPress?: () => void;
-}) {
-  const status = (item.status || 'pending').toLowerCase();
-  const statusColor = statusColorMap[status] || palette.warning;
-
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.9}
-      style={styles.listRowCard}
-    >
-      <View style={styles.listRowLeft}>
-        <View style={styles.fileIconWrap}>
-          <Ionicons name="document-text-outline" size={18} color={palette.primarySoft} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.listRowTitle} numberOfLines={1}>
-            {item.file_name}
-          </Text>
-          <Text style={styles.listRowSubtext}>
-            {formatDateTime(item.created_at)} • {formatFileSize(item.file_size)}
-          </Text>
-          <Text style={styles.listRowSubtext}>
-            Rows: {formatCompactNumber(item.row_count || 0)}
-          </Text>
-        </View>
-      </View>
-      <View style={styles.statusPillWrap}>
-        <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-        <Text style={[styles.statusPillText, { color: statusColor }]}>
-          {status.charAt(0).toUpperCase() + status.slice(1)}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-function AnalysisRow({
-  item,
-  onPress,
-}: {
-  item: AnalysisItem;
-  onPress?: () => void;
-}) {
-  const risk = scoreTone(item.risk_score);
-  const confidence = confidenceTone(item.confidence_score);
-
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      activeOpacity={0.9}
-      style={styles.analysisCard}
-    >
-      <View style={styles.analysisTop}>
-        <View>
-          <Text style={styles.analysisDate}>{formatDateTime(item.created_at)}</Text>
-          <Text style={styles.analysisSummary} numberOfLines={2}>
-            {item.summary || 'AI analysis completed and insights are available.'}
-          </Text>
-        </View>
-        <View style={styles.analysisBadges}>
-          <View
-            style={[
-              styles.miniBadge,
-              { backgroundColor: 'rgba(245,158,11,0.12)' },
-            ]}
-          >
-            <Text style={[styles.miniBadgeText, { color: risk.color }]}>
-              Risk {formatPercent(item.risk_score)}
-            </Text>
-          </View>
-        </View>
-      </View>
-      <View style={styles.analysisMetaRow}>
-        <View style={styles.analysisMetaBox}>
-          <Text style={styles.analysisMetaLabel}>Confidence</Text>
-          <Text style={[styles.analysisMetaValue, { color: confidence.color }]}>
-            {formatPercent(item.confidence_score)}
-          </Text>
-        </View>
-        <View style={styles.analysisMetaBox}>
-          <Text style={styles.analysisMetaLabel}>Anomalies</Text>
-          <Text style={styles.analysisMetaValue}>
-            {formatCompactNumber(item.anomaly_count || 0)}
-          </Text>
-        </View>
-        <View style={styles.analysisMetaBox}>
-          <Text style={styles.analysisMetaLabel}>Recommendations</Text>
-          <Text style={styles.analysisMetaValue}>
-            {formatCompactNumber(item.recommendation_count || 0)}
-          </Text>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-function AlertCard({ item }: { item: AlertItem }) {
-  const toneMap = {
-    low: palette.primarySoft,
-    medium: palette.warning,
-    high: palette.danger,
-  } as const;
-
-  const iconMap = {
-    low: 'information-circle-outline',
-    medium: 'warning-outline',
-    high: 'alert-circle-outline',
-  } as const;
-
-  return (
-    <View style={styles.alertCard}>
-      <View
-        style={[
-          styles.alertIconWrap,
-          { backgroundColor: `${toneMap[item.severity]}20` },
-        ]}
-      >
-        <Ionicons
-          name={iconMap[item.severity]}
-          size={18}
-          color={toneMap[item.severity]}
-        />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.alertTitle}>{item.title}</Text>
-        <Text style={styles.alertDescription}>{item.description}</Text>
-      </View>
-    </View>
-  );
-}
-
-function ReportRow({
-  item,
-  onPress,
-}: {
-  item: ReportItem;
-  onPress?: () => void;
-}) {
-  const status = (item.status || 'pending').toLowerCase();
-  const statusColor = statusColorMap[status] || palette.warning;
-
-  return (
-    <TouchableOpacity
-      style={styles.reportRow}
-      onPress={onPress}
-      activeOpacity={0.9}
-    >
-      <View style={styles.reportIconWrap}>
-        <MaterialCommunityIcons
-          name="file-chart-outline"
-          size={20}
-          color={palette.primarySoft}
-        />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.reportTitle} numberOfLines={1}>
-          {item.title || 'Untitled report'}
-        </Text>
-        <Text style={styles.reportMeta}>
-          {(item.report_type || 'Analysis').toUpperCase()} • {formatDate(item.created_at)}
-        </Text>
-      </View>
-      <View style={styles.statusPillWrap}>
-        <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-        <Text style={[styles.statusPillText, { color: statusColor }]}>
-          {status.charAt(0).toUpperCase() + status.slice(1)}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-function MarketInsightCard({
+function CleanStatCard({
   title,
   value,
   subtitle,
   icon,
-  tone = 'primary',
 }: {
   title: string;
   value: string;
   subtitle: string;
   icon: React.ComponentProps<typeof Ionicons>['name'];
-  tone?: 'primary' | 'success' | 'warning' | 'purple';
+}) {
+  return (
+    <View style={styles.cleanStatCard}>
+      <View style={styles.cleanStatIconWrap}>
+        <Ionicons name={icon} size={18} color={palette.primary2} />
+      </View>
+      <Text style={styles.cleanStatValue}>{value}</Text>
+      <Text style={styles.cleanStatTitle}>{title}</Text>
+      <Text style={styles.cleanStatSubtitle}>{subtitle}</Text>
+    </View>
+  );
+}
+
+function MiniInsightCard({
+  title,
+  value,
+  subtitle,
+  icon,
+  bg,
+  iconColor,
+}: {
+  title: string;
+  value: string;
+  subtitle: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  bg: string;
+  iconColor: string;
+}) {
+  return (
+    <View style={[styles.miniInsightCard, { backgroundColor: bg }]}>
+      <View style={styles.miniInsightTop}>
+        <Text style={styles.miniInsightTitle}>{title}</Text>
+        <Ionicons name={icon} size={18} color={iconColor} />
+      </View>
+      <Text style={styles.miniInsightValue}>{value}</Text>
+      <Text style={styles.miniInsightSubtitle}>{subtitle}</Text>
+    </View>
+  );
+}
+
+function ProgressPill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: 'success' | 'warning' | 'danger' | 'info';
 }) {
   const bgMap = {
-    primary: 'rgba(59,130,246,0.12)',
-    success: 'rgba(16,185,129,0.12)',
-    warning: 'rgba(245,158,11,0.12)',
-    purple: 'rgba(139,92,246,0.12)',
+    success: palette.greenSoft,
+    warning: palette.yellowSoft,
+    danger: palette.redSoft,
+    info: palette.blueSoft,
   } as const;
 
-  const iconMap = {
-    primary: palette.primarySoft,
+  const textMap = {
     success: palette.success,
     warning: palette.warning,
-    purple: palette.purple,
+    danger: palette.danger,
+    info: palette.info,
   } as const;
 
   return (
-    <View style={styles.marketCard}>
-      <View style={[styles.marketIconWrap, { backgroundColor: bgMap[tone] }]}>
-        <Ionicons name={icon} size={18} color={iconMap[tone]} />
-      </View>
-      <Text style={styles.marketTitle}>{title}</Text>
-      <Text style={styles.marketValue}>{value}</Text>
-      <Text style={styles.marketSubtitle}>{subtitle}</Text>
+    <View style={[styles.progressPill, { backgroundColor: bgMap[tone] }]}>
+      <Text style={[styles.progressPillLabel, { color: textMap[tone] }]}>{label}</Text>
+      <Text style={[styles.progressPillValue, { color: textMap[tone] }]}>{value}</Text>
     </View>
   );
 }
 
-// ==================== NEW ENHANCEMENTS ====================
-
-// 1. Skeleton Loader
-const SkeletonLoader = ({ width, height, style }: { width?: number | string; height?: number | string; style?: any }) => {
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(shimmerAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
-        Animated.timing(shimmerAnim, { toValue: 0, duration: 1000, useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
-  const translateX = shimmerAnim.interpolate({ inputRange: [0, 1], outputRange: [-100, 100] });
+function SimpleInfoRow({
+  label,
+  value,
+  valueColor,
+}: {
+  label: string;
+  value: string;
+  valueColor?: string;
+}) {
   return (
-    <Animated.View style={[{ width, height, backgroundColor: palette.card2, borderRadius: 8, overflow: 'hidden' }, style]}>
-      <Animated.View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.05)', transform: [{ translateX }] }} />
-    </Animated.View>
-  );
-};
-
-// 2. Sparkline for risk trend
-const Sparkline = ({ data, color }: { data: number[]; color: string }) => {
-  const max = Math.max(...data, 1);
-  const min = Math.min(...data, 0);
-  const range = max - min;
-  const normalize = (v: number) => ((v - min) / (range || 1)) * 30;
-  const sliced = data.slice(-6);
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 30, gap: 2 }}>
-      {sliced.map((val, idx) => (
-        <View key={idx} style={{ width: 4, height: normalize(val), backgroundColor: color, borderRadius: 2, opacity: 0.6 + idx * 0.07 }} />
-      ))}
+    <View style={styles.simpleInfoRow}>
+      <Text style={styles.simpleInfoLabel}>{label}</Text>
+      <Text style={[styles.simpleInfoValue, valueColor ? { color: valueColor } : null]}>
+        {value}
+      </Text>
     </View>
   );
-};
+}
 
-// 3. Toast notification
-const Toast = ({ message, type = 'info', onHide }: { message: string; type?: 'success' | 'error' | 'info'; onHide: () => void }) => {
-  useEffect(() => {
-    const timer = setTimeout(onHide, 3000);
-    return () => clearTimeout(timer);
-  }, []);
-  const bgColor = type === 'success' ? palette.success : type === 'error' ? palette.danger : palette.primary;
+function PieChartCard({
+  title,
+  subtitle,
+  data,
+}: {
+  title: string;
+  subtitle?: string;
+  data: { label: string; value: number; color: string }[];
+}) {
+  const total = data.reduce((sum, item) => sum + Math.max(0, item.value), 0);
+  const size = 118;
+  const strokeWidth = 16;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+
+  let cumulative = 0;
+
   return (
-    <Animatable.View animation="fadeInUp" duration={300} style={[styles.toast, { backgroundColor: bgColor }]}>
-      <Text style={styles.toastText}>{message}</Text>
-    </Animatable.View>
-  );
-};
+    <View style={styles.pieCard}>
+      <Text style={styles.pieCardTitle}>{title}</Text>
+      {!!subtitle && <Text style={styles.pieCardSubtitle}>{subtitle}</Text>}
 
-// 4. Error Boundary (simple class component)
-class DashboardErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
-  constructor(props: any) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(error: any) { console.error('Dashboard error:', error); }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <View style={styles.errorBoundaryContainer}>
-          <Ionicons name="bug-outline" size={48} color={palette.danger} />
-          <Text style={styles.errorBoundaryText}>Something went wrong. Pull to refresh.</Text>
+      <View style={styles.pieCardContent}>
+        <View style={styles.pieWrap}>
+          <Svg width={size} height={size}>
+            <Circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              stroke="#EAEFF4"
+              strokeWidth={strokeWidth}
+              fill="none"
+            />
+            {total > 0 &&
+              data.map((item, index) => {
+                const value = Math.max(0, item.value);
+                const segmentLength = (value / total) * circumference;
+                const dashArray = `${segmentLength} ${circumference - segmentLength}`;
+                const dashOffset = -cumulative;
+                cumulative += segmentLength;
+
+                return (
+                  <Circle
+                    key={`${item.label}-${index}`}
+                    cx={size / 2}
+                    cy={size / 2}
+                    r={radius}
+                    stroke={item.color}
+                    strokeWidth={strokeWidth}
+                    fill="none"
+                    strokeDasharray={dashArray}
+                    strokeDashoffset={dashOffset}
+                    rotation="-90"
+                    origin={`${size / 2}, ${size / 2}`}
+                    strokeLinecap="butt"
+                  />
+                );
+              })}
+          </Svg>
+
+          <View style={styles.pieCenter}>
+            <Text style={styles.pieCenterValue}>{total}</Text>
+            <Text style={styles.pieCenterLabel}>Total</Text>
+          </View>
         </View>
-      );
-    }
-    return this.props.children;
-  }
+
+        <View style={styles.pieLegend}>
+          {data.map((item) => (
+            <View key={item.label} style={styles.pieLegendRow}>
+              <View style={[styles.pieLegendDot, { backgroundColor: item.color }]} />
+              <Text style={styles.pieLegendLabel}>{item.label}</Text>
+              <Text style={styles.pieLegendValue}>{item.value}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+    </View>
+  );
 }
 
-// ==================== MAIN DASHBOARD ====================
-export default function DashboardScreen() {
+function RiskProductCard({ item }: { item: ProductRow }) {
+  const expiry = daysUntil(item.expiry_date);
+  const stock = safeNumber(item.stock_quantity);
+  const minStock = safeNumber(item.min_stock_level);
+  const margin = marginPercent(item.selling_price, item.cost_price);
+  const risk = riskScoreForProduct(item);
+
+  return (
+    <View style={styles.riskProductCard}>
+      <View style={styles.riskProductLeft}>
+        <View style={styles.foodIconWrap}>
+          <MaterialCommunityIcons name="food-variant" size={20} color={palette.primary2} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.riskProductTitle}>{item.name}</Text>
+          <Text style={styles.riskProductMeta}>
+            {item.category || 'General'} • Supplier: {item.supplier_name || 'N/A'}
+          </Text>
+          <View style={styles.riskTagRow}>
+            <View style={styles.softTag}>
+              <Text style={styles.softTagText}>Stock {stock}</Text>
+            </View>
+            <View style={styles.softTag}>
+              <Text style={styles.softTagText}>Min {minStock}</Text>
+            </View>
+            <View style={styles.softTag}>
+              <Text style={styles.softTagText}>Margin {margin.toFixed(0)}%</Text>
+            </View>
+            <View style={styles.softTag}>
+              <Text style={styles.softTagText}>
+                Exp {expiry === null ? '—' : `${expiry}d`}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.riskMeterWrap}>
+        <Text style={styles.riskMeterValue}>{risk}%</Text>
+        <Text style={styles.riskMeterLabel}>Risk</Text>
+      </View>
+    </View>
+  );
+}
+
+function AlertCard({ item }: { item: AlertRow }) {
+  const color = severityColor(item.severity);
+  const bg = severityBg(item.severity);
+
+  return (
+    <View style={styles.alertCard}>
+      <View style={[styles.alertIconWrap, { backgroundColor: bg }]}>
+        <Ionicons name="warning-outline" size={18} color={color} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.alertTitle}>{item.title}</Text>
+        <Text style={styles.alertDescription}>
+          {item.description || 'No description provided.'}
+        </Text>
+        <Text style={styles.alertTime}>{formatDate(item.created_at)}</Text>
+      </View>
+    </View>
+  );
+}
+
+function RecommendationCard({ item }: { item: RecommendationRow }) {
+  const color = recommendationColor(item.recommendation_type);
+
+  return (
+    <View style={styles.recommendationCard}>
+      <View style={[styles.recommendationIconWrap, { backgroundColor: `${color}15` }]}>
+        <Ionicons
+          name={recommendationIcon(item.recommendation_type)}
+          size={18}
+          color={color}
+        />
+      </View>
+
+      <View style={{ flex: 1 }}>
+        <Text style={styles.recommendationTitle}>{item.product_name}</Text>
+        <Text style={styles.recommendationMessage}>{item.message}</Text>
+      </View>
+
+      <View style={styles.recommendationValueWrap}>
+        <Text style={[styles.recommendationValue, { color }]}>
+          {formatCompactCurrency(item.impact_value)}
+        </Text>
+        <Text style={styles.recommendationValueLabel}>impact</Text>
+      </View>
+    </View>
+  );
+}
+
+function CategoryCard({ item, maxCount }: { item: CategoryMetric; maxCount: number }) {
+  const percent = maxCount > 0 ? (item.product_count / maxCount) * 100 : 0;
+
+  return (
+    <View style={styles.categoryCard}>
+      <View style={styles.categoryTop}>
+        <Text style={styles.categoryName}>{item.name}</Text>
+        <Text style={styles.categoryProducts}>{item.product_count} products</Text>
+      </View>
+
+      <View style={styles.categoryBarTrack}>
+        <View style={[styles.categoryBarFill, { width: `${percent}%` }]} />
+      </View>
+
+      <View style={styles.categoryMetricsRow}>
+        <View style={styles.categoryMetricItem}>
+          <Text style={styles.categoryMetricValue}>{item.total_stock}</Text>
+          <Text style={styles.categoryMetricLabel}>Stock</Text>
+        </View>
+        <View style={styles.categoryMetricItem}>
+          <Text style={styles.categoryMetricValue}>{item.avg_margin.toFixed(0)}%</Text>
+          <Text style={styles.categoryMetricLabel}>Margin</Text>
+        </View>
+        <View style={styles.categoryMetricItem}>
+          <Text style={styles.categoryMetricValue}>{item.near_expiry_count}</Text>
+          <Text style={styles.categoryMetricLabel}>Expiring</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function SupplierCard({
+  supplier,
+  productCount,
+  riskyCount,
+}: {
+  supplier: string;
+  productCount: number;
+  riskyCount: number;
+}) {
+  const health = riskyCount === 0 ? 'Stable' : riskyCount <= 2 ? 'Watch' : 'Risky';
+  const color =
+    health === 'Stable' ? palette.success : health === 'Watch' ? palette.warning : palette.danger;
+
+  return (
+    <View style={styles.supplierCard}>
+      <View style={styles.supplierTop}>
+        <View style={styles.supplierIconWrap}>
+          <Feather name="truck" size={18} color={palette.info} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.supplierName}>{supplier}</Text>
+          <Text style={styles.supplierMeta}>{productCount} linked products</Text>
+        </View>
+        <View style={[styles.healthBadge, { backgroundColor: `${color}15` }]}>
+          <Text style={[styles.healthBadgeText, { color }]}>{health}</Text>
+        </View>
+      </View>
+      <Text style={styles.supplierRiskText}>{riskyCount} products need attention</Text>
+    </View>
+  );
+}
+
+function EmptyCard({
+  title,
+  subtitle,
+  icon,
+}: {
+  title: string;
+  subtitle: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+}) {
+  return (
+    <View style={styles.emptyCard}>
+      <View style={styles.emptyIconWrap}>
+        <Ionicons name={icon} size={22} color={palette.primary2} />
+      </View>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptySubtitle}>{subtitle}</Text>
+    </View>
+  );
+}
+
+export default function FoodDashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [profile, setProfile] = useState<DashboardProfile | null>(null);
-  const [uploads, setUploads] = useState<UploadItem[]>([]);
-  const [analyses, setAnalyses] = useState<AnalysisItem[]>([]);
-  const [reports, setReports] = useState<ReportItem[]>([]);
-  const [marketRows, setMarketRows] = useState<MarketRow[]>([]);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [products, setProducts] = useState<ProductRow[]>([]);
+  const [alerts, setAlerts] = useState<AlertRow[]>([]);
+  const [recommendations, setRecommendations] = useState<RecommendationRow[]>([]);
 
   const loadDashboard = useCallback(async (isRefresh = false) => {
     try {
       if (isRefresh) setRefreshing(true);
       else setLoading(true);
 
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError) throw userError;
-      if (!user) { router.replace('/login'); return; }
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
 
-      const [{ data: profileData }, { data: uploadData }, { data: analysisData }, { data: reportData }, { data: marketData }] = await Promise.all([
-        supabase.from('profiles').select('id, full_name, company').eq('id', user.id).maybeSingle(),
-        supabase.from('uploads').select('id, file_name, created_at, status, file_size, row_count').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10),
-        supabase.from('analyses').select('id, created_at, risk_score, summary, upload_id, status, confidence_score, anomaly_count, recommendation_count').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10),
-        supabase.from('reports').select('id, title, created_at, status, report_type').eq('user_id', user.id).order('created_at', { ascending: false }).limit(10),
-        supabase.from('market_prices').select('id, category, avg_market_price, min_price, max_price, updated_at').order('updated_at', { ascending: false }).limit(20),
+      if (authError) throw authError;
+
+      if (!user) {
+        router.replace('/login');
+        return;
+      }
+
+      const [profileRes, productsRes, alertsRes, recommendationsRes] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id, full_name, business_name')
+          .eq('id', user.id)
+          .maybeSingle(),
+
+        supabase
+          .from('food_products')
+          .select(
+            'id, name, category, sku, barcode, stock_quantity, min_stock_level, selling_price, cost_price, expiry_date, supplier_name, status'
+          )
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(120),
+
+        supabase
+          .from('food_alerts')
+          .select('id, title, description, severity, created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10),
+
+        supabase
+          .from('food_recommendations')
+          .select('id, product_name, recommendation_type, message, impact_value, created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(12),
       ]);
 
-      setProfile(profileData || null);
-      setUploads(uploadData || []);
-      setAnalyses(analysisData || []);
-      setReports(reportData || []);
-      setMarketRows(marketData || []);
-      setLastUpdated(new Date());
+      if (profileRes.error) throw profileRes.error;
+      if (productsRes.error) throw productsRes.error;
+      if (alertsRes.error) throw alertsRes.error;
+      if (recommendationsRes.error) throw recommendationsRes.error;
+
+      setProfile(profileRes.data || null);
+      setProducts((productsRes.data as ProductRow[]) || []);
+      setAlerts((alertsRes.data as AlertRow[]) || []);
+      setRecommendations((recommendationsRes.data as RecommendationRow[]) || []);
     } catch (error: any) {
-      Alert.alert('Dashboard Error', error?.message || 'Unable to load dashboard data right now.');
+      Alert.alert('Dashboard error', error?.message || 'Failed to load dashboard.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -759,67 +723,13 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     loadDashboard();
-    Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }).start();
-  }, []);
+  }, [loadDashboard]);
 
-  // Real‑time alerts subscription (simulated – adapt to your actual Supabase table)
-  useEffect(() => {
-    const subscription = supabase
-      .channel('dashboard_alerts')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'alerts' }, (payload) => {
-        setToast({ message: (payload.new as any)?.title || 'New alert', type: 'info' });
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-        loadDashboard(true);
-      })
-      .subscribe();
-    return () => { subscription.unsubscribe(); };
-  }, []);
+  const displayName =
+    profile?.business_name?.trim() ||
+    profile?.full_name?.trim() ||
+    'Food Retail Business';
 
-  // Keyboard shortcuts (web)
-  useEffect(() => {
-    if (Platform.OS === 'web') {
-      const handleKeyPress = (e: KeyboardEvent) => {
-        if (e.key === 'u' || e.key === 'U') { router.push('/(tabs)/upload'); e.preventDefault(); }
-        else if (e.key === 'r' || e.key === 'R') { loadDashboard(true); e.preventDefault(); }
-      };
-      window.addEventListener('keydown', handleKeyPress);
-      return () => window.removeEventListener('keydown', handleKeyPress);
-    }
-  }, []);
-
-  const alerts = useMemo(() => buildAlerts(uploads, analyses, reports), [uploads, analyses, reports]);
-  const stats = useMemo(() => computeStats(uploads, analyses, reports, alerts), [uploads, analyses, reports, alerts]);
-  const latestAnalysis = analyses[0];
-  const latestUpload = uploads[0];
-  const latestReport = reports[0];
-
-  const marketSummary = useMemo(() => {
-    if (!marketRows.length) return { trackedCategories: 0, avgBenchmark: 0, widestRange: 0, latestUpdate: null };
-    const validAvg = marketRows.map(r => r.avg_market_price || 0).filter(v => v > 0);
-    const avgBenchmark = validAvg.length ? validAvg.reduce((a,b) => a+b,0) / validAvg.length : 0;
-    const widestRange = marketRows.reduce((max, r) => Math.max(max, (r.max_price || 0) - (r.min_price || 0)), 0);
-    return {
-      trackedCategories: new Set(marketRows.map(r => r.category).filter(Boolean)).size,
-      avgBenchmark,
-      widestRange,
-      latestUpdate: marketRows[0]?.updated_at || null,
-    };
-  }, [marketRows]);
-
-  const handleRefresh = async () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await loadDashboard(true);
-    setToast({ message: 'Dashboard refreshed', type: 'success' });
-  };
-
-  const handleLogout = async () => {
-    Alert.alert('Sign out', 'Do you want to sign out from RiskLens?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Sign out', style: 'destructive', onPress: async () => { await supabase.auth.signOut(); router.replace('/login'); } },
-    ]);
-  };
-
-  const userName = profile?.full_name?.trim() || profile?.company?.trim() || 'RiskLens User';
   const greeting = (() => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good morning';
@@ -827,286 +737,1788 @@ export default function DashboardScreen() {
     return 'Good evening';
   })();
 
-  const riskTrend = useMemo(() => analyses.map(a => a.risk_score || 0).reverse(), [analyses]);
+  const stats = useMemo(() => {
+    const totalProducts = products.length;
+
+    const totalStock = products.reduce((sum, p) => sum + safeNumber(p.stock_quantity), 0);
+
+    const inventoryValue = products.reduce(
+      (sum, p) => sum + safeNumber(p.stock_quantity) * safeNumber(p.cost_price),
+      0
+    );
+
+    const potentialRevenue = products.reduce(
+      (sum, p) => sum + safeNumber(p.stock_quantity) * safeNumber(p.selling_price),
+      0
+    );
+
+    const lowStock = products.filter((p) => {
+      const stock = safeNumber(p.stock_quantity);
+      const min = safeNumber(p.min_stock_level);
+      return min > 0 ? stock <= min : stock <= 10;
+    }).length;
+
+    const outOfStock = products.filter((p) => safeNumber(p.stock_quantity) <= 0).length;
+
+    const nearExpiry = products.filter((p) => {
+      const days = daysUntil(p.expiry_date);
+      return days !== null && days >= 0 && days <= 7;
+    }).length;
+
+    const expiresToday = products.filter((p) => {
+      const days = daysUntil(p.expiry_date);
+      return days !== null && days === 0;
+    }).length;
+
+    const expired = products.filter((p) => {
+      const days = daysUntil(p.expiry_date);
+      return days !== null && days < 0;
+    }).length;
+
+    const wasteRisk = products.filter((p) => {
+      const days = daysUntil(p.expiry_date);
+      const stock = safeNumber(p.stock_quantity);
+      return days !== null && days <= 5 && stock >= 8;
+    }).length;
+
+    const highRiskProducts = products.filter((p) => riskScoreForProduct(p) >= 70).length;
+
+    const margins = products
+      .filter((p) => safeNumber(p.selling_price) > 0)
+      .map((p) => marginPercent(p.selling_price, p.cost_price));
+
+    const avgMargin =
+      margins.length > 0
+        ? margins.reduce((sum, current) => sum + current, 0) / margins.length
+        : 0;
+
+    const weakMargin = products.filter(
+      (p) => marginPercent(p.selling_price, p.cost_price) < 15
+    ).length;
+
+    return {
+      totalProducts,
+      totalStock,
+      inventoryValue,
+      potentialRevenue,
+      lowStock,
+      outOfStock,
+      nearExpiry,
+      expiresToday,
+      expired,
+      wasteRisk,
+      highRiskProducts,
+      avgMargin,
+      weakMargin,
+      activeAlerts: alerts.length,
+    };
+  }, [products, alerts]);
+
+  const categoryMetrics = useMemo(() => buildCategoryMetrics(products), [products]);
+
+  const topRiskProducts = useMemo(() => {
+    return [...products]
+      .sort((a, b) => riskScoreForProduct(b) - riskScoreForProduct(a))
+      .slice(0, 6);
+  }, [products]);
+
+  const discountRecommendations = useMemo(
+    () => recommendations.filter((r) => r.recommendation_type === 'discount').slice(0, 4),
+    [recommendations]
+  );
+
+  const restockRecommendations = useMemo(
+    () => recommendations.filter((r) => r.recommendation_type === 'restock').slice(0, 4),
+    [recommendations]
+  );
+
+  const priceRecommendations = useMemo(
+    () =>
+      recommendations
+        .filter(
+          (r) =>
+            r.recommendation_type === 'price_up' || r.recommendation_type === 'price_down'
+        )
+        .slice(0, 4),
+    [recommendations]
+  );
+
+  const supplierSummary = useMemo(() => {
+    const map = new Map<string, { productCount: number; riskyCount: number }>();
+
+    for (const product of products) {
+      const supplier = product.supplier_name?.trim() || 'Unknown Supplier';
+      const current = map.get(supplier) || { productCount: 0, riskyCount: 0 };
+      current.productCount += 1;
+      if (riskScoreForProduct(product) >= 70) current.riskyCount += 1;
+      map.set(supplier, current);
+    }
+
+    return Array.from(map.entries())
+      .map(([supplier, data]) => ({
+        supplier,
+        productCount: data.productCount,
+        riskyCount: data.riskyCount,
+      }))
+      .sort((a, b) => b.productCount - a.productCount)
+      .slice(0, 5);
+  }, [products]);
+
+  const complianceSummary = useMemo(() => {
+    const missingBarcode = products.filter((p) => !p.barcode).length;
+    const missingSku = products.filter((p) => !p.sku).length;
+    const missingSupplier = products.filter((p) => !p.supplier_name).length;
+    const missingExpiry = products.filter((p) => !p.expiry_date).length;
+
+    return {
+      missingBarcode,
+      missingSku,
+      missingSupplier,
+      missingExpiry,
+    };
+  }, [products]);
+
+  const todayPlan = useMemo(() => {
+    const actions: string[] = [];
+
+    if (stats.expiresToday > 0) {
+      actions.push(`${stats.expiresToday} products expire today and need immediate clearance.`);
+    }
+    if (stats.lowStock > 0) {
+      actions.push(`${stats.lowStock} products are below safe stock levels.`);
+    }
+    if (stats.wasteRisk > 0) {
+      actions.push(`${stats.wasteRisk} products have elevated waste risk this week.`);
+    }
+    if (stats.weakMargin > 0) {
+      actions.push(`${stats.weakMargin} products have weak margin and need review.`);
+    }
+
+    if (actions.length === 0) {
+      actions.push('No urgent action items. Focus on optimization and fresh uploads.');
+    }
+
+    return actions.slice(0, 4);
+  }, [stats]);
+
+  const wasteExposureValue = useMemo(() => {
+    return products.reduce((sum, p) => {
+      const days = daysUntil(p.expiry_date);
+      const stock = safeNumber(p.stock_quantity);
+      if (days !== null && days >= 0 && days <= 5 && stock > 0) {
+        return sum + stock * safeNumber(p.cost_price);
+      }
+      return sum;
+    }, 0);
+  }, [products]);
+
+  const discountOpportunityValue = useMemo(() => {
+    return discountRecommendations.reduce((sum, item) => sum + safeNumber(item.impact_value), 0);
+  }, [discountRecommendations]);
+
+  const restockOpportunityValue = useMemo(() => {
+    return restockRecommendations.reduce((sum, item) => sum + safeNumber(item.impact_value), 0);
+  }, [restockRecommendations]);
+
+  const riskLevelLabel =
+    stats.highRiskProducts >= 10
+      ? 'High risk'
+      : stats.highRiskProducts >= 4
+      ? 'Moderate risk'
+      : 'Healthy';
+
+  const riskLevelColor =
+    stats.highRiskProducts >= 10
+      ? palette.danger
+      : stats.highRiskProducts >= 4
+      ? palette.warning
+      : palette.success;
+
+  const stockPieData = useMemo(() => {
+    const healthy = Math.max(0, stats.totalProducts - stats.lowStock - stats.outOfStock);
+    return [
+      { label: 'Healthy', value: healthy, color: palette.success },
+      { label: 'Low stock', value: stats.lowStock, color: palette.warning },
+      { label: 'Out of stock', value: stats.outOfStock, color: palette.danger },
+    ];
+  }, [stats.totalProducts, stats.lowStock, stats.outOfStock]);
+
+  const expiryPieData = useMemo(() => {
+    const safe = Math.max(0, stats.totalProducts - stats.nearExpiry - stats.expired);
+    return [
+      { label: 'Safe', value: safe, color: palette.success },
+      { label: 'Near expiry', value: stats.nearExpiry, color: palette.warning },
+      { label: 'Expired', value: stats.expired, color: palette.danger },
+    ];
+  }, [stats.totalProducts, stats.nearExpiry, stats.expired]);
+
+  const recommendationPieData = useMemo(() => {
+    const discount = recommendations.filter((r) => r.recommendation_type === 'discount').length;
+    const restock = recommendations.filter((r) => r.recommendation_type === 'restock').length;
+    const priceUp = recommendations.filter((r) => r.recommendation_type === 'price_up').length;
+    const priceDown = recommendations.filter((r) => r.recommendation_type === 'price_down').length;
+
+    return [
+      { label: 'Discount', value: discount, color: palette.orange },
+      { label: 'Restock', value: restock, color: palette.info },
+      { label: 'Price up', value: priceUp, color: palette.success },
+      { label: 'Price down', value: priceDown, color: palette.purple },
+    ];
+  }, [recommendations]);
+
+  const onRefresh = async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    await loadDashboard(true);
+  };
 
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <LinearGradient colors={[palette.bg, palette.bg2]} style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={palette.primary} />
-          <Text style={styles.loadingText}>Loading your RiskLens dashboard...</Text>
-          <SkeletonLoader width={200} height={16} style={{ marginTop: 20 }} />
-          <SkeletonLoader width={250} height={12} style={{ marginTop: 8 }} />
+        <LinearGradient colors={[palette.bg, palette.bg2, palette.bg3]} style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={palette.primary2} />
+          <Text style={styles.loadingText}>Loading food intelligence dashboard...</Text>
         </LinearGradient>
       </SafeAreaView>
     );
   }
 
+  const maxCategoryCount = categoryMetrics.length
+    ? Math.max(...categoryMetrics.map((c) => c.product_count))
+    : 1;
+
   return (
-    <DashboardErrorBoundary>
-      <SafeAreaView style={styles.safeArea}>
-        <LinearGradient colors={[palette.bg, palette.bg2]} style={styles.container}>
-          <ScrollView
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={palette.primary} />}
+    <SafeAreaView style={styles.safeArea}>
+      <LinearGradient colors={[palette.bg, palette.bg2, palette.bg3]} style={styles.container}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={palette.primary2}
+            />
+          }
+        >
+          <LinearGradient
+            colors={['#E7FFF1', '#D9FCE7', '#F6FFF9']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.heroCard}
           >
-            <Animatable.View animation="fadeInUp" duration={600} useNativeDriver>
-              <LinearGradient colors={[palette.card, palette.card2]} style={styles.heroCard}>
-                <View style={styles.heroTopRow}>
-                  <View style={styles.avatarWrap}>
-                    <Text style={styles.avatarText}>{initials(profile?.full_name || userName)}</Text>
-                  </View>
-                  <TouchableOpacity style={styles.iconGhostButton} onPress={handleLogout}>
-                    <Ionicons name="log-out-outline" size={18} color={palette.textSoft} />
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.greetingText}>{greeting}, <Text style={{ color: palette.text }}>{userName}</Text></Text>
-                <Text style={styles.heroTitle}>Your pricing, risk, and market intelligence workspace</Text>
-                <Text style={styles.heroSubtitle}>Monitor uploads, review analyses, compare benchmark prices, and act on AI-generated business insights from one place.</Text>
-                {lastUpdated && <Text style={styles.lastUpdated}>Last updated: {lastUpdated.toLocaleTimeString()}</Text>}
-                <View style={styles.heroActions}>
-                  <TouchableOpacity style={styles.primaryHeroButton} onPress={() => router.push('/(tabs)/upload')} activeOpacity={0.9}>
-                    <LinearGradient colors={[palette.primary, palette.primary2]} style={styles.primaryHeroButtonInner}>
-                      <Ionicons name="cloud-upload-outline" size={18} color="#FFF" />
-                      <Text style={styles.primaryHeroButtonText}>Upload CSV</Text>
-                    </LinearGradient>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.secondaryHeroButton} onPress={() => router.push('/(tabs)/reports')} activeOpacity={0.9}>
-                    <Ionicons name="document-text-outline" size={18} color={palette.textSoft} />
-                    <Text style={styles.secondaryHeroButtonText}>Open reports</Text>
-                  </TouchableOpacity>
-                </View>
-              </LinearGradient>
-            </Animatable.View>
+            <View style={styles.heroTopRow}>
+              <View style={styles.avatarWrap}>
+                <Text style={styles.avatarText}>{initials(displayName)}</Text>
+              </View>
 
-            <SectionHeader title="Quick actions" subtitle="Jump straight into the most important workflows." />
-            <View style={styles.quickActionsGrid}>
-              <QuickActionCard title="Upload new CSV" subtitle="Add a fresh dataset and start analysis." icon="cloud-upload-outline" tone="primary" onPress={() => router.push('/(tabs)/upload')} />
-              <QuickActionCard title="View analyses" subtitle="Inspect recent AI results and signals." icon="analytics-outline" tone="purple" onPress={() => router.push('/(tabs)/analysis')} />
-              <QuickActionCard title="Market intelligence" subtitle="Compare your data against market benchmarks." icon="globe-outline" tone="success" onPress={() => router.push('/(tabs)/market')} />
-              <QuickActionCard title="Reports" subtitle="Open saved summaries and exported reports." icon="newspaper-outline" tone="warning" onPress={() => router.push('/(tabs)/reports')} />
-            </View>
+              <View style={styles.heroTopActions}>
+                <TouchableOpacity
+                  style={styles.headerButton}
+                  onPress={() => router.push('/(tabs)/explore')}
+                >
+                  <Ionicons name="sparkles-outline" size={18} color={palette.primary2} />
+                </TouchableOpacity>
 
-            <SectionHeader title="Workspace overview" subtitle="Your key metrics at a glance." />
-            <View style={styles.statsGrid}>
-              <StatCard title="Uploads" value={formatCompactNumber(stats.totalUploads)} icon="cloud-upload-outline" tone="primary" footnote="Datasets stored" />
-              <StatCard title="Analyses" value={formatCompactNumber(stats.totalAnalyses)} icon="analytics-outline" tone="purple" footnote="AI runs completed" />
-              <StatCard title="Reports" value={formatCompactNumber(stats.completedReports)} icon="document-text-outline" tone="success" footnote="Completed reports" />
-              <StatCard title="Avg risk" value={formatPercent(stats.avgRiskScore)} icon="warning-outline" tone="warning" footnote="Across analyses" />
-              <StatCard title="Confidence" value={formatPercent(stats.avgConfidence)} icon="shield-checkmark-outline" tone="cyan" footnote="AI confidence" />
-              <StatCard title="Alerts" value={formatCompactNumber(stats.activeAlerts)} icon="alert-circle-outline" tone="danger" footnote="Need attention" />
-            </View>
-
-            <SectionHeader title="AI summary" subtitle="Latest generated highlights from your workspace." />
-            {latestAnalysis ? (
-              <View style={styles.summaryCard}>
-                <View style={styles.summaryTopRow}>
-                  <View style={styles.summaryChip}><Ionicons name="sparkles-outline" size={14} color={palette.primarySoft} /><Text style={styles.summaryChipText}>Latest insight</Text></View>
-                  <Text style={styles.summaryDate}>{formatDateTime(latestAnalysis.created_at)}</Text>
-                </View>
-                <Text style={styles.summaryHeadline}>{latestAnalysis.summary || 'Your latest dataset has been analyzed and new pricing insights are ready.'}</Text>
-                <View style={styles.summaryMetricsRow}>
-                  <View style={styles.summaryMetric}><Text style={styles.summaryMetricLabel}>Risk score</Text><Text style={styles.summaryMetricValue}>{formatPercent(latestAnalysis.risk_score)}</Text></View>
-                  <View style={styles.summaryMetric}><Text style={styles.summaryMetricLabel}>Confidence</Text><Text style={styles.summaryMetricValue}>{formatPercent(latestAnalysis.confidence_score)}</Text></View>
-                  <View style={styles.summaryMetric}><Text style={styles.summaryMetricLabel}>Anomalies</Text><Text style={styles.summaryMetricValue}>{formatCompactNumber(latestAnalysis.anomaly_count || 0)}</Text></View>
-                </View>
-                {riskTrend.length > 1 && (
-                  <View style={styles.sparklineContainer}>
-                    <Text style={styles.sparklineLabel}>Risk trend (last {riskTrend.length} analyses)</Text>
-                    <Sparkline data={riskTrend} color={palette.danger} />
-                  </View>
-                )}
-                <TouchableOpacity style={styles.summaryAction} onPress={() => router.push('/(tabs)/analysis')}>
-                  <Text style={styles.summaryActionText}>Open analysis center</Text>
-                  <Ionicons name="arrow-forward" size={15} color={palette.primarySoft} />
+                <TouchableOpacity
+                  style={styles.headerButton}
+                  onPress={() => router.push('/(tabs)/upload')}
+                >
+                  <Ionicons name="cloud-upload-outline" size={18} color={palette.primary2} />
                 </TouchableOpacity>
               </View>
-            ) : (
-              <EmptyStateCard icon="analytics-outline" title="No analyses yet" subtitle="Upload your first CSV file to generate pricing, risk, and market intelligence insights." actionLabel="Upload first CSV" onPress={() => router.push('/(tabs)/upload')} />
-            )}
-
-            <SectionHeader title="Market overview" subtitle="Benchmark intelligence from your available market data." onPress={() => router.push('/(tabs)/market')} />
-            <View style={styles.marketGrid}>
-              <MarketInsightCard title="Tracked categories" value={formatCompactNumber(marketSummary.trackedCategories)} subtitle="Benchmark groups available" icon="layers-outline" tone="primary" />
-              <MarketInsightCard title="Avg market price" value={`€${marketSummary.avgBenchmark.toFixed(2)}`} subtitle="Mean benchmark price" icon="cash-outline" tone="success" />
-              <MarketInsightCard title="Widest price range" value={`€${marketSummary.widestRange.toFixed(2)}`} subtitle="Largest spread detected" icon="swap-vertical-outline" tone="warning" />
-              <MarketInsightCard title="Last update" value={marketSummary.latestUpdate ? formatDate(marketSummary.latestUpdate) : '—'} subtitle="Latest benchmark refresh" icon="time-outline" tone="purple" />
             </View>
 
-            <SectionHeader title="Alerts & attention points" subtitle="Important issues detected in your uploads, analyses, or reports." />
+            <Text style={styles.greetingText}>{greeting}</Text>
+            <Text style={styles.heroTitle}>{displayName}</Text>
+            <Text style={styles.heroSubtitle}>
+              Bright, real-time operational intelligence for food products, stock, waste, pricing,
+              supplier performance, and expiry risk.
+            </Text>
+
+            <View style={styles.heroBadgeRow}>
+              <View style={[styles.heroBadge, { backgroundColor: `${riskLevelColor}18` }]}>
+                <Text style={[styles.heroBadgeText, { color: riskLevelColor }]}>{riskLevelLabel}</Text>
+              </View>
+              <View style={styles.heroBadge}>
+                <Text style={styles.heroBadgeTextNeutral}>{stats.totalProducts} tracked items</Text>
+              </View>
+              <View style={styles.heroBadge}>
+                <Text style={styles.heroBadgeTextNeutral}>{stats.activeAlerts} live alerts</Text>
+              </View>
+            </View>
+
+            <View style={styles.heroActionRow}>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                activeOpacity={0.9}
+                onPress={() => router.push('/(tabs)/upload')}
+              >
+                <LinearGradient
+                  colors={[palette.primary, palette.primary2]}
+                  style={styles.primaryButtonGradient}
+                >
+                  <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+                  <Text style={styles.primaryButtonText}>Upload Products CSV</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                activeOpacity={0.9}
+                onPress={() => router.push('/(tabs)/explore')}
+              >
+                <Ionicons name="grid-outline" size={16} color={palette.primary2} />
+                <Text style={styles.secondaryButtonText}>Open Insights</Text>
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
+
+          <SectionHeader
+            title="Overview"
+            subtitle="Main business signals for today"
+          />
+
+          <View style={styles.cleanStatsGrid}>
+            <CleanStatCard
+              title="Products"
+              value={`${stats.totalProducts}`}
+              subtitle="Tracked food items"
+              icon="basket-outline"
+            />
+            <CleanStatCard
+              title="Low stock"
+              value={`${stats.lowStock}`}
+              subtitle="Need restock soon"
+              icon="alert-circle-outline"
+            />
+            <CleanStatCard
+              title="Near expiry"
+              value={`${stats.nearExpiry}`}
+              subtitle="Within 7 days"
+              icon="time-outline"
+            />
+            <CleanStatCard
+              title="Avg margin"
+              value={`${stats.avgMargin.toFixed(0)}%`}
+              subtitle="Across inventory"
+              icon="cash-outline"
+            />
+          </View>
+
+          <SectionHeader
+            title="Visual control"
+            subtitle="Quick charts for faster human reading"
+          />
+
+          <View style={styles.pieGrid}>
+            <PieChartCard
+              title="Stock health"
+              subtitle="Healthy vs low stock"
+              data={stockPieData}
+            />
+            <PieChartCard
+              title="Expiry health"
+              subtitle="Safe vs expiring"
+              data={expiryPieData}
+            />
+            <PieChartCard
+              title="Recommendation mix"
+              subtitle="Action types"
+              data={recommendationPieData}
+            />
+          </View>
+
+          <SectionHeader
+            title="Business summary"
+            subtitle="Clear and simple operational view"
+          />
+
+          <View style={styles.simplePanel}>
+            <SimpleInfoRow label="Inventory value" value={formatCurrency(stats.inventoryValue)} />
+            <SimpleInfoRow label="Potential revenue" value={formatCurrency(stats.potentialRevenue)} />
+            <SimpleInfoRow
+              label="Out of stock products"
+              value={`${stats.outOfStock}`}
+              valueColor={palette.info}
+            />
+            <SimpleInfoRow
+              label="High risk products"
+              value={`${stats.highRiskProducts}`}
+              valueColor={progressColor(stats.highRiskProducts >= 10 ? 80 : stats.highRiskProducts >= 4 ? 50 : 20)}
+            />
+            <SimpleInfoRow
+              label="Waste risk products"
+              value={`${stats.wasteRisk}`}
+              valueColor={palette.warning}
+            />
+            <SimpleInfoRow
+              label="Active alerts"
+              value={`${stats.activeAlerts}`}
+              valueColor={palette.danger}
+            />
+          </View>
+
+          <SectionHeader
+            title="Detailed KPI cards"
+            subtitle="Extended dashboard metrics"
+          />
+
+          <View style={styles.statsGrid}>
+            <StatCard
+              title="Products"
+              value={`${stats.totalProducts}`}
+              subtitle="Tracked food items"
+              icon="basket-outline"
+              tone="success"
+            />
+            <StatCard
+              title="Low stock"
+              value={`${stats.lowStock}`}
+              subtitle="Need restock soon"
+              icon="alert-circle-outline"
+              tone="warning"
+            />
+            <StatCard
+              title="Near expiry"
+              value={`${stats.nearExpiry}`}
+              subtitle="Within 7 days"
+              icon="time-outline"
+              tone="danger"
+            />
+            <StatCard
+              title="Avg margin"
+              value={`${stats.avgMargin.toFixed(0)}%`}
+              subtitle="Across inventory"
+              icon="cash-outline"
+              tone="info"
+            />
+            <StatCard
+              title="Inventory value"
+              value={formatCompactCurrency(stats.inventoryValue)}
+              subtitle="At cost basis"
+              icon="cube-outline"
+              tone="purple"
+            />
+            <StatCard
+              title="Potential revenue"
+              value={formatCompactCurrency(stats.potentialRevenue)}
+              subtitle="At selling price"
+              icon="trending-up-outline"
+              tone="cyan"
+            />
+          </View>
+
+          <SectionHeader
+            title="Control center"
+            subtitle="Fast summary of your operation health"
+          />
+
+          <View style={styles.miniInsightsGrid}>
+            <MiniInsightCard
+              title="Expires today"
+              value={`${stats.expiresToday}`}
+              subtitle="Immediate action needed"
+              icon="alarm-outline"
+              bg={palette.redSoft}
+              iconColor={palette.danger}
+            />
+            <MiniInsightCard
+              title="Expired"
+              value={`${stats.expired}`}
+              subtitle="Needs removal/check"
+              icon="close-circle-outline"
+              bg={palette.redSoft}
+              iconColor={palette.danger}
+            />
+            <MiniInsightCard
+              title="Out of stock"
+              value={`${stats.outOfStock}`}
+              subtitle="Lost sales risk"
+              icon="remove-circle-outline"
+              bg={palette.blueSoft}
+              iconColor={palette.info}
+            />
+            <MiniInsightCard
+              title="Waste risk"
+              value={`${stats.wasteRisk}`}
+              subtitle="Likely unsold soon"
+              icon="trash-outline"
+              bg={palette.yellowSoft}
+              iconColor={palette.warning}
+            />
+          </View>
+
+          <SectionHeader
+            title="Today plan"
+            subtitle="What should the business do first"
+          />
+
+          <View style={styles.todayPlanCard}>
+            {todayPlan.map((item, index) => (
+              <View key={`${item}-${index}`} style={styles.planRow}>
+                <View style={styles.planBullet} />
+                <Text style={styles.planText}>{item}</Text>
+              </View>
+            ))}
+          </View>
+
+          <SectionHeader
+            title="Opportunity board"
+            subtitle="Money, waste and growth angles"
+          />
+
+          <View style={styles.opportunityWrap}>
+            <View style={styles.opportunityCardLarge}>
+              <Text style={styles.opportunityEyebrow}>Waste exposure</Text>
+              <Text style={styles.opportunityValue}>{formatCurrency(wasteExposureValue)}</Text>
+              <Text style={styles.opportunityText}>
+                Estimated inventory cost tied to products expiring within 5 days.
+              </Text>
+              <View style={styles.inlineMeterTrack}>
+                <View
+                  style={[
+                    styles.inlineMeterFill,
+                    {
+                      width: `${Math.min(
+                        100,
+                        stats.totalProducts ? (stats.wasteRisk / stats.totalProducts) * 100 : 0
+                      )}%`,
+                      backgroundColor: palette.warning,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+
+            <View style={styles.opportunityCardSmall}>
+              <Text style={styles.opportunityEyebrow}>Discount opportunity</Text>
+              <Text style={styles.opportunitySmallValue}>
+                {formatCompactCurrency(discountOpportunityValue)}
+              </Text>
+              <Text style={styles.opportunityText}>Potential sales rescue from discount actions.</Text>
+            </View>
+
+            <View style={styles.opportunityCardSmall}>
+              <Text style={styles.opportunityEyebrow}>Restock opportunity</Text>
+              <Text style={styles.opportunitySmallValue}>
+                {formatCompactCurrency(restockOpportunityValue)}
+              </Text>
+              <Text style={styles.opportunityText}>Estimated sales recovery from replenishment.</Text>
+            </View>
+          </View>
+
+          <SectionHeader
+            title="Stock and margin health"
+            subtitle="Business balance at a glance"
+          />
+
+          <View style={styles.healthCard}>
+            <View style={styles.healthRow}>
+              <Text style={styles.healthLabel}>Stock pressure</Text>
+              <Text style={styles.healthValue}>{stats.lowStock}</Text>
+            </View>
+            <View style={styles.healthTrack}>
+              <View
+                style={[
+                  styles.healthFill,
+                  {
+                    width: `${Math.min(
+                      100,
+                      stats.totalProducts ? (stats.lowStock / stats.totalProducts) * 100 : 0
+                    )}%`,
+                    backgroundColor: palette.warning,
+                  },
+                ]}
+              />
+            </View>
+
+            <View style={styles.healthRow}>
+              <Text style={styles.healthLabel}>Expiry pressure</Text>
+              <Text style={styles.healthValue}>{stats.nearExpiry}</Text>
+            </View>
+            <View style={styles.healthTrack}>
+              <View
+                style={[
+                  styles.healthFill,
+                  {
+                    width: `${Math.min(
+                      100,
+                      stats.totalProducts ? (stats.nearExpiry / stats.totalProducts) * 100 : 0
+                    )}%`,
+                    backgroundColor: palette.danger,
+                  },
+                ]}
+              />
+            </View>
+
+            <View style={styles.healthRow}>
+              <Text style={styles.healthLabel}>Weak margin products</Text>
+              <Text style={styles.healthValue}>{stats.weakMargin}</Text>
+            </View>
+            <View style={styles.healthTrack}>
+              <View
+                style={[
+                  styles.healthFill,
+                  {
+                    width: `${Math.min(
+                      100,
+                      stats.totalProducts ? (stats.weakMargin / stats.totalProducts) * 100 : 0
+                    )}%`,
+                    backgroundColor: palette.info,
+                  },
+                ]}
+              />
+            </View>
+
+            <View style={styles.healthPillsRow}>
+              <ProgressPill label="Risky" value={`${stats.highRiskProducts}`} tone="danger" />
+              <ProgressPill label="Out of stock" value={`${stats.outOfStock}`} tone="info" />
+              <ProgressPill label="Expiring" value={`${stats.nearExpiry}`} tone="warning" />
+            </View>
+          </View>
+
+          <SectionHeader
+            title="Category performance"
+            subtitle="Which groups drive complexity and risk"
+          />
+
+          <View style={styles.categoryList}>
+            {categoryMetrics.length > 0 ? (
+              categoryMetrics.slice(0, 6).map((item) => (
+                <CategoryCard key={item.name} item={item} maxCount={maxCategoryCount} />
+              ))
+            ) : (
+              <EmptyCard
+                title="No category data yet"
+                subtitle="Once products are uploaded, category performance will appear here."
+                icon="layers-outline"
+              />
+            )}
+          </View>
+
+          <SectionHeader
+            title="Top risky products"
+            subtitle="Products needing action first"
+          />
+
+          <View style={styles.block}>
+            {topRiskProducts.length > 0 ? (
+              topRiskProducts.map((item) => <RiskProductCard key={item.id} item={item} />)
+            ) : (
+              <EmptyCard
+                title="No products yet"
+                subtitle="Upload your food inventory CSV to unlock risk tracking."
+                icon="basket-outline"
+              />
+            )}
+          </View>
+
+          <SectionHeader
+            title="Discount recommendations"
+            subtitle="Reduce waste and move sensitive stock"
+          />
+
+          <View style={styles.block}>
+            {discountRecommendations.length > 0 ? (
+              discountRecommendations.map((item) => (
+                <RecommendationCard key={item.id} item={item} />
+              ))
+            ) : (
+              <EmptyCard
+                title="No discount actions yet"
+                subtitle="Discount suggestions will appear when expiry pressure is detected."
+                icon="pricetag-outline"
+              />
+            )}
+          </View>
+
+          <SectionHeader
+            title="Restock recommendations"
+            subtitle="Prevent lost sales on fast-moving items"
+          />
+
+          <View style={styles.block}>
+            {restockRecommendations.length > 0 ? (
+              restockRecommendations.map((item) => (
+                <RecommendationCard key={item.id} item={item} />
+              ))
+            ) : (
+              <EmptyCard
+                title="No restock actions yet"
+                subtitle="Restock suggestions will appear when stock levels drop below safety."
+                icon="cube-outline"
+              />
+            )}
+          </View>
+
+          <SectionHeader
+            title="Pricing recommendations"
+            subtitle="Margin and competitiveness adjustments"
+          />
+
+          <View style={styles.block}>
+            {priceRecommendations.length > 0 ? (
+              priceRecommendations.map((item) => (
+                <RecommendationCard key={item.id} item={item} />
+              ))
+            ) : (
+              <EmptyCard
+                title="No pricing moves yet"
+                subtitle="Price-up and price-down recommendations will appear here."
+                icon="analytics-outline"
+              />
+            )}
+          </View>
+
+          <SectionHeader
+            title="Supplier watch"
+            subtitle="Where supplier-linked risk is concentrated"
+          />
+
+          <View style={styles.block}>
+            {supplierSummary.length > 0 ? (
+              supplierSummary.map((item) => (
+                <SupplierCard
+                  key={item.supplier}
+                  supplier={item.supplier}
+                  productCount={item.productCount}
+                  riskyCount={item.riskyCount}
+                />
+              ))
+            ) : (
+              <EmptyCard
+                title="No supplier data"
+                subtitle="Suppliers will be summarized after importing product records."
+                icon="business-outline"
+              />
+            )}
+          </View>
+
+          <SectionHeader
+            title="Compliance and data hygiene"
+            subtitle="Missing product information that weakens control"
+          />
+
+          <View style={styles.complianceGrid}>
+            <View style={styles.complianceCard}>
+              <Text style={styles.complianceValue}>{complianceSummary.missingBarcode}</Text>
+              <Text style={styles.complianceTitle}>Missing barcode</Text>
+            </View>
+            <View style={styles.complianceCard}>
+              <Text style={styles.complianceValue}>{complianceSummary.missingSku}</Text>
+              <Text style={styles.complianceTitle}>Missing SKU</Text>
+            </View>
+            <View style={styles.complianceCard}>
+              <Text style={styles.complianceValue}>{complianceSummary.missingSupplier}</Text>
+              <Text style={styles.complianceTitle}>Missing supplier</Text>
+            </View>
+            <View style={styles.complianceCard}>
+              <Text style={styles.complianceValue}>{complianceSummary.missingExpiry}</Text>
+              <Text style={styles.complianceTitle}>Missing expiry</Text>
+            </View>
+          </View>
+
+          <SectionHeader
+            title="Latest business alerts"
+            subtitle="Signals that need management attention"
+          />
+
+          <View style={styles.block}>
             {alerts.length > 0 ? (
-              <View style={styles.alertsList}>{alerts.map(item => <AlertCard key={item.id} item={item} />)}</View>
+              alerts.slice(0, 6).map((item) => <AlertCard key={item.id} item={item} />)
             ) : (
-              <EmptyStateCard icon="shield-checkmark-outline" title="No active alerts" subtitle="Your current workspace looks healthy. Keep uploading fresh data to maintain visibility." />
+              <EmptyCard
+                title="No alerts right now"
+                subtitle="Alerts will appear when stock, expiry or pricing issues are detected."
+                icon="notifications-outline"
+              />
             )}
+          </View>
 
-            <SectionHeader title="Recent uploads" subtitle="Datasets recently added to your workspace." onPress={() => router.push('/(tabs)/upload')} />
-            {uploads.length > 0 ? (
-              <View style={styles.listBlock}>{uploads.slice(0,5).map(item => <UploadRow key={item.id} item={item} onPress={() => router.push('/(tabs)/upload')} />)}</View>
-            ) : (
-              <EmptyStateCard icon="cloud-upload-outline" title="No uploads yet" subtitle="Start by uploading a CSV file so RiskLens can begin analysis." actionLabel="Go to upload" onPress={() => router.push('/(tabs)/upload')} />
-            )}
+          <SectionHeader
+            title="Quick actions"
+            subtitle="Use the dashboard as your operational cockpit"
+          />
 
-            <SectionHeader title="Recent analyses" subtitle="Your latest AI-generated outputs and scoring." onPress={() => router.push('/(tabs)/analysis')} />
-            {analyses.length > 0 ? (
-              <View style={styles.analysisList}>{analyses.slice(0,4).map(item => <AnalysisRow key={item.id} item={item} onPress={() => router.push('/(tabs)/analysis')} />)}</View>
-            ) : (
-              <EmptyStateCard icon="sparkles-outline" title="No AI analyses yet" subtitle="Analyses will appear here once your uploaded data is processed." />
-            )}
-
-            <SectionHeader title="Reports history" subtitle="Recently generated business and pricing reports." onPress={() => router.push('/(tabs)/reports')} />
-            {reports.length > 0 ? (
-              <View style={styles.reportsList}>{reports.slice(0,5).map(item => <ReportRow key={item.id} item={item} onPress={() => router.push('/(tabs)/reports')} />)}</View>
-            ) : (
-              <EmptyStateCard icon="document-text-outline" title="No reports available" subtitle="Reports will appear after you run analyses and save summaries." />
-            )}
-
-            <SectionHeader title="Workspace highlights" subtitle="A final summary of the most important live state in your app." />
-            <View style={styles.highlightsWrap}>
-              <View style={styles.highlightCardLarge}>
-                <Text style={styles.highlightEyebrow}>Latest upload</Text>
-                <Text style={styles.highlightTitle}>{latestUpload?.file_name || 'No upload available yet'}</Text>
-                <Text style={styles.highlightText}>{latestUpload ? `Uploaded on ${formatDateTime(latestUpload.created_at)} with status ${latestUpload.status || 'pending'}.` : 'Upload a CSV file to unlock personalized analysis and reporting.'}</Text>
+          <View style={styles.quickActionGrid}>
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              activeOpacity={0.9}
+              onPress={() => router.push('/(tabs)/upload')}
+            >
+              <View style={[styles.quickActionIconWrap, { backgroundColor: palette.greenSoft }]}>
+                <Ionicons name="cloud-upload-outline" size={20} color={palette.primary2} />
               </View>
-              <View style={styles.highlightCardSmall}>
-                <Text style={styles.highlightEyebrow}>Latest report</Text>
-                <Text style={styles.highlightTitleSmall}>{latestReport?.title || 'No report generated'}</Text>
-                <Text style={styles.highlightText}>{latestReport ? `${formatDate(latestReport.created_at)} • ${latestReport.status || 'pending'}` : 'Run an analysis to start generating reports.'}</Text>
-              </View>
-              <View style={styles.highlightCardSmall}>
-                <Text style={styles.highlightEyebrow}>Avg AI confidence</Text>
-                <Text style={styles.highlightValueBig}>{formatPercent(stats.avgConfidence)}</Text>
-                <Text style={styles.highlightText}>Based on recent analyses generated in your workspace.</Text>
-              </View>
-            </View>
-            <View style={styles.footerSpace} />
-          </ScrollView>
-
-          <Animatable.View animation="fadeInUp" delay={500} style={styles.fabContainer}>
-            <TouchableOpacity style={styles.fab} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); router.push('/(tabs)/upload'); }} activeOpacity={0.9}>
-              <LinearGradient colors={[palette.primary, palette.primary2]} style={styles.fabGradient}>
-                <Ionicons name="add" size={28} color="#FFF" />
-              </LinearGradient>
+              <Text style={styles.quickActionTitle}>Upload inventory</Text>
+              <Text style={styles.quickActionSubtitle}>Import fresh food data</Text>
             </TouchableOpacity>
-          </Animatable.View>
 
-          {toast && <Toast message={toast.message} type={toast.type} onHide={() => setToast(null)} />}
-        </LinearGradient>
-      </SafeAreaView>
-    </DashboardErrorBoundary>
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              activeOpacity={0.9}
+              onPress={() => router.push('/(tabs)/explore')}
+            >
+              <View style={[styles.quickActionIconWrap, { backgroundColor: palette.blueSoft }]}>
+                <Ionicons name="analytics-outline" size={20} color={palette.info} />
+              </View>
+              <Text style={styles.quickActionTitle}>Open insights</Text>
+              <Text style={styles.quickActionSubtitle}>Review AI intelligence</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              activeOpacity={0.9}
+              onPress={onRefresh}
+            >
+              <View style={[styles.quickActionIconWrap, { backgroundColor: palette.yellowSoft }]}>
+                <Ionicons name="refresh-outline" size={20} color={palette.warning} />
+              </View>
+              <Text style={styles.quickActionTitle}>Refresh data</Text>
+              <Text style={styles.quickActionSubtitle}>Reload latest metrics</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.quickActionCard}
+              activeOpacity={0.9}
+              onPress={() =>
+                Alert.alert(
+                  'Food OS',
+                  'Next step is creating the Supabase tables and seeded food product data.'
+                )
+              }
+            >
+              <View style={[styles.quickActionIconWrap, { backgroundColor: palette.purpleSoft }]}>
+                <Ionicons name="construct-outline" size={20} color={palette.purple} />
+              </View>
+              <Text style={styles.quickActionTitle}>Setup next</Text>
+              <Text style={styles.quickActionSubtitle}>Prepare Supabase schema</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </LinearGradient>
+    </SafeAreaView>
   );
 }
 
-// ==================== STYLES ====================
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: palette.bg },
-  container: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
-  loadingText: { color: palette.textSoft, marginTop: 14, fontSize: 14, textAlign: 'center' },
-  scrollContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 24 },
-  heroCard: { borderRadius: 26, borderWidth: 1, borderColor: palette.border, padding: 20, marginBottom: 20, overflow: 'hidden' },
-  heroTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
-  avatarWrap: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(59,130,246,0.18)', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: palette.text, fontSize: 15, fontWeight: '800' },
-  iconGhostButton: { width: 40, height: 40, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.04)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: palette.border },
-  greetingText: { color: palette.textSoft, fontSize: 14, marginBottom: 8 },
-  heroTitle: { color: palette.text, fontSize: 27, lineHeight: 34, fontWeight: '900', letterSpacing: -0.7, marginBottom: 10 },
-  heroSubtitle: { color: palette.textMuted, fontSize: 14, lineHeight: 21, marginBottom: 20 },
-  lastUpdated: { color: palette.textMuted, fontSize: 11, marginBottom: 16 },
-  heroActions: { gap: 12 },
-  primaryHeroButton: { borderRadius: 16, overflow: 'hidden' },
-  primaryHeroButtonInner: { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  primaryHeroButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800', marginLeft: 8 },
-  secondaryHeroButton: { minHeight: 52, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: palette.border, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
-  secondaryHeroButtonText: { color: palette.textSoft, fontSize: 15, fontWeight: '700', marginLeft: 8 },
-  sectionHeader: { marginBottom: 12, marginTop: 6, flexDirection: 'row', alignItems: 'flex-end' },
-  sectionTitle: { color: palette.text, fontSize: 19, fontWeight: '800', marginBottom: 4 },
-  sectionSubtitle: { color: palette.textMuted, fontSize: 13, lineHeight: 18 },
-  sectionAction: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  sectionActionText: { color: palette.primarySoft, fontSize: 13, fontWeight: '700', marginRight: 4 },
-  quickActionsGrid: { gap: 12, marginBottom: 18 },
-  quickActionCard: { backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 16, flexDirection: 'row', alignItems: 'center' },
-  quickActionIconWrap: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  quickActionTitle: { color: palette.text, fontSize: 15, fontWeight: '800', marginBottom: 3 },
-  quickActionSubtitle: { color: palette.textMuted, fontSize: 12, lineHeight: 17 },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 18 },
-  statCard: { width: '48.2%', backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 15 },
-  statIconWrap: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
-  statValue: { color: palette.text, fontSize: 24, fontWeight: '900', marginBottom: 4 },
-  statTitle: { color: palette.textSoft, fontSize: 13, fontWeight: '700' },
-  statFootnote: { color: palette.textMuted, fontSize: 11, marginTop: 6 },
-  summaryCard: { backgroundColor: palette.card, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: 18, marginBottom: 18 },
-  summaryTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  summaryChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(59,130,246,0.12)', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
-  summaryChipText: { color: palette.primarySoft, fontSize: 12, fontWeight: '700', marginLeft: 6 },
-  summaryDate: { color: palette.textMuted, fontSize: 12 },
-  summaryHeadline: { color: palette.text, fontSize: 16, lineHeight: 24, fontWeight: '700', marginBottom: 16 },
-  summaryMetricsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  summaryMetric: { flex: 1, backgroundColor: palette.card2, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: palette.border },
-  summaryMetricLabel: { color: palette.textMuted, fontSize: 11, marginBottom: 4 },
-  summaryMetricValue: { color: palette.text, fontSize: 15, fontWeight: '800' },
-  summaryAction: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start' },
-  summaryActionText: { color: palette.primarySoft, fontSize: 13, fontWeight: '800', marginRight: 6 },
-  sparklineContainer: { marginTop: 8, marginBottom: 12 },
-  sparklineLabel: { color: palette.textMuted, fontSize: 11, marginBottom: 6 },
-  marketGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 18 },
-  marketCard: { width: '48.2%', backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 15 },
-  marketIconWrap: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
-  marketTitle: { color: palette.textSoft, fontSize: 13, fontWeight: '700', marginBottom: 8 },
-  marketValue: { color: palette.text, fontSize: 21, fontWeight: '900', marginBottom: 4 },
-  marketSubtitle: { color: palette.textMuted, fontSize: 11, lineHeight: 16 },
-  alertsList: { gap: 12, marginBottom: 18 },
-  alertCard: { backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 15, flexDirection: 'row', alignItems: 'flex-start' },
-  alertIconWrap: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  alertTitle: { color: palette.text, fontSize: 14, fontWeight: '800', marginBottom: 4 },
-  alertDescription: { color: palette.textMuted, fontSize: 12, lineHeight: 18 },
-  listBlock: { gap: 12, marginBottom: 18 },
-  listRowCard: { backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  listRowLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 10 },
-  fileIconWrap: { width: 40, height: 40, borderRadius: 14, backgroundColor: 'rgba(59,130,246,0.12)', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  listRowTitle: { color: palette.text, fontSize: 14, fontWeight: '800', marginBottom: 4 },
-  listRowSubtext: { color: palette.textMuted, fontSize: 12, lineHeight: 16 },
-  statusPillWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.04)', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999 },
-  statusDot: { width: 8, height: 8, borderRadius: 999, marginRight: 6 },
-  statusPillText: { fontSize: 12, fontWeight: '800' },
-  analysisList: { gap: 12, marginBottom: 18 },
-  analysisCard: { backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 16 },
-  analysisTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 },
-  analysisDate: { color: palette.textMuted, fontSize: 12, marginBottom: 6 },
-  analysisSummary: { color: palette.text, fontSize: 14, lineHeight: 21, fontWeight: '700', maxWidth: 240 },
-  analysisBadges: { alignItems: 'flex-end', marginLeft: 8 },
-  miniBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 7 },
-  miniBadgeText: { fontSize: 12, fontWeight: '800' },
-  analysisMetaRow: { flexDirection: 'row', gap: 10 },
-  analysisMetaBox: { flex: 1, backgroundColor: palette.card2, borderRadius: 14, borderWidth: 1, borderColor: palette.border, padding: 12 },
-  analysisMetaLabel: { color: palette.textMuted, fontSize: 11, marginBottom: 4 },
-  analysisMetaValue: { color: palette.text, fontSize: 15, fontWeight: '800' },
-  reportsList: { gap: 12, marginBottom: 18 },
-  reportRow: { backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 14, flexDirection: 'row', alignItems: 'center' },
-  reportIconWrap: { width: 42, height: 42, borderRadius: 14, backgroundColor: 'rgba(59,130,246,0.12)', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  reportTitle: { color: palette.text, fontSize: 14, fontWeight: '800', marginBottom: 4 },
-  reportMeta: { color: palette.textMuted, fontSize: 12 },
-  highlightsWrap: { gap: 12 },
-  highlightCardLarge: { backgroundColor: palette.card, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: 18 },
-  highlightCardSmall: { backgroundColor: palette.card, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: 18 },
-  highlightEyebrow: { color: palette.primarySoft, fontSize: 12, fontWeight: '800', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
-  highlightTitle: { color: palette.text, fontSize: 18, fontWeight: '800', lineHeight: 24, marginBottom: 8 },
-  highlightTitleSmall: { color: palette.text, fontSize: 16, fontWeight: '800', lineHeight: 22, marginBottom: 8 },
-  highlightValueBig: { color: palette.text, fontSize: 28, fontWeight: '900', marginBottom: 8 },
-  highlightText: { color: palette.textMuted, fontSize: 13, lineHeight: 19 },
-  emptyCard: { backgroundColor: palette.card, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: 22, alignItems: 'center', marginBottom: 18 },
-  emptyIconWrap: { width: 48, height: 48, borderRadius: 16, backgroundColor: 'rgba(59,130,246,0.12)', alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
-  emptyTitle: { color: palette.text, fontSize: 16, fontWeight: '800', marginBottom: 6, textAlign: 'center' },
-  emptySubtitle: { color: palette.textMuted, fontSize: 13, lineHeight: 19, textAlign: 'center', marginBottom: 14 },
-  emptyAction: { backgroundColor: 'rgba(59,130,246,0.14)', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12 },
-  emptyActionText: { color: palette.primarySoft, fontSize: 13, fontWeight: '800' },
-  footerSpace: { height: Platform.OS === 'ios' ? 40 : 24 },
-  fabContainer: { position: 'absolute', bottom: 24, right: 20, zIndex: 999 },
-  fab: { width: 56, height: 56, borderRadius: 28, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 8 },
-  fabGradient: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  toast: { position: 'absolute', bottom: 100, left: 20, right: 20, borderRadius: 12, padding: 12, alignItems: 'center', zIndex: 1000, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 4 },
-  toastText: { color: '#FFF', fontWeight: '600', fontSize: 14 },
-  errorBoundaryContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: palette.bg, padding: 24 },
-  errorBoundaryText: { color: palette.textMuted, marginTop: 12, textAlign: 'center' },
+  safeArea: {
+    flex: 1,
+    backgroundColor: palette.bg,
+  },
+  container: {
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  loadingText: {
+    marginTop: 14,
+    color: palette.textSoft,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  scrollContent: {
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 24,
+  },
+
+  heroCard: {
+    borderRadius: 28,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+    marginBottom: 20,
+    shadowColor: '#7AD9A1',
+    shadowOpacity: 0.15,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  heroTopActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  avatarWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+  },
+  avatarText: {
+    color: palette.primary2,
+    fontWeight: '900',
+    fontSize: 16,
+  },
+  headerButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFFCC',
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+  },
+  greetingText: {
+    marginTop: 18,
+    color: palette.textSoft,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  heroTitle: {
+    marginTop: 6,
+    color: palette.text,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '900',
+  },
+  heroSubtitle: {
+    marginTop: 10,
+    color: palette.textMuted,
+    fontSize: 14,
+    lineHeight: 22,
+    fontWeight: '500',
+  },
+  heroBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 16,
+  },
+  heroBadge: {
+    backgroundColor: '#FFFFFFCC',
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  heroBadgeText: {
+    fontWeight: '800',
+    fontSize: 12,
+  },
+  heroBadgeTextNeutral: {
+    color: palette.textSoft,
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  heroActionRow: {
+    gap: 12,
+    marginTop: 18,
+  },
+  primaryButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  primaryButtonGradient: {
+    minHeight: 54,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  secondaryButton: {
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+    backgroundColor: '#FFFFFFCC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  secondaryButtonText: {
+    color: palette.primary2,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    color: palette.text,
+    fontSize: 20,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  sectionAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  sectionActionText: {
+    color: palette.primary2,
+    fontSize: 13,
+    fontWeight: '800',
+    marginRight: 4,
+  },
+
+  cleanStatsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 18,
+  },
+  cleanStatCard: {
+    width: cardWidth,
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  cleanStatIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: palette.greenSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  cleanStatValue: {
+    color: palette.text,
+    fontSize: 24,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  cleanStatTitle: {
+    color: palette.textSoft,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  cleanStatSubtitle: {
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 6,
+    fontWeight: '500',
+  },
+
+  pieGrid: {
+    gap: 12,
+    marginBottom: 18,
+  },
+  pieCard: {
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 16,
+  },
+  pieCardTitle: {
+    color: palette.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  pieCardSubtitle: {
+    color: palette.textMuted,
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 17,
+    fontWeight: '500',
+  },
+  pieCardContent: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  pieWrap: {
+    width: 118,
+    height: 118,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  pieCenter: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pieCenterValue: {
+    color: palette.text,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  pieCenterLabel: {
+    color: palette.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  pieLegend: {
+    width: '100%',
+    gap: 8,
+  },
+  pieLegendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pieLegendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginRight: 8,
+  },
+  pieLegendLabel: {
+    flex: 1,
+    color: palette.textSoft,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  pieLegendValue: {
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+
+  simplePanel: {
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: palette.border,
+    paddingVertical: 4,
+    marginBottom: 18,
+  },
+  simpleInfoRow: {
+    minHeight: 48,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EEF5F0',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  simpleInfoLabel: {
+    flex: 1,
+    color: palette.textSoft,
+    fontSize: 14,
+    fontWeight: '700',
+    paddingRight: 10,
+  },
+  simpleInfoValue: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 18,
+  },
+  statCard: {
+    width: cardWidth,
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    shadowColor: '#BAEFD0',
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  statIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  statValue: {
+    color: palette.text,
+    fontSize: 24,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  statTitle: {
+    color: palette.textSoft,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  statSubtitle: {
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 6,
+    fontWeight: '500',
+  },
+
+  miniInsightsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 18,
+  },
+  miniInsightCard: {
+    width: cardWidth,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#FFFFFF',
+  },
+  miniInsightTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  miniInsightTitle: {
+    color: palette.textSoft,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  miniInsightValue: {
+    color: palette.text,
+    fontSize: 26,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  miniInsightSubtitle: {
+    color: palette.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '500',
+  },
+
+  todayPlanCard: {
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 18,
+    marginBottom: 18,
+  },
+  planRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  planBullet: {
+    width: 9,
+    height: 9,
+    borderRadius: 999,
+    backgroundColor: palette.primary,
+    marginTop: 6,
+    marginRight: 10,
+  },
+  planText: {
+    flex: 1,
+    color: palette.textSoft,
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '600',
+  },
+
+  opportunityWrap: {
+    gap: 12,
+    marginBottom: 18,
+  },
+  opportunityCardLarge: {
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  opportunityCardSmall: {
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  opportunityEyebrow: {
+    color: palette.primary2,
+    fontSize: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  opportunityValue: {
+    color: palette.text,
+    fontSize: 30,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  opportunitySmallValue: {
+    color: palette.text,
+    fontSize: 24,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  opportunityText: {
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '500',
+  },
+  inlineMeterTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#EEF5F0',
+    marginTop: 14,
+    overflow: 'hidden',
+  },
+  inlineMeterFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+
+  healthCard: {
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 18,
+    marginBottom: 18,
+  },
+  healthRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    marginTop: 6,
+  },
+  healthLabel: {
+    color: palette.textSoft,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  healthValue: {
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  healthTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#EEF5F0',
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  healthFill: {
+    height: '100%',
+    borderRadius: 999,
+  },
+  healthPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 12,
+  },
+  progressPill: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  progressPillLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  progressPillValue: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+
+  categoryList: {
+    gap: 12,
+    marginBottom: 18,
+  },
+  categoryCard: {
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  categoryTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  categoryName: {
+    color: palette.text,
+    fontSize: 15,
+    fontWeight: '900',
+    flex: 1,
+  },
+  categoryProducts: {
+    color: palette.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  categoryBarTrack: {
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#EEF5F0',
+    overflow: 'hidden',
+    marginBottom: 14,
+  },
+  categoryBarFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: palette.primary,
+  },
+  categoryMetricsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  categoryMetricItem: {
+    flex: 1,
+    backgroundColor: palette.cardMint,
+    borderRadius: 14,
+    padding: 12,
+    alignItems: 'center',
+  },
+  categoryMetricValue: {
+    color: palette.text,
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  categoryMetricLabel: {
+    color: palette.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
+  block: {
+    gap: 12,
+    marginBottom: 18,
+  },
+
+  riskProductCard: {
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  riskProductLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    paddingRight: 12,
+  },
+  foodIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: palette.greenSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  riskProductTitle: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  riskProductMeta: {
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  riskTagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  softTag: {
+    backgroundColor: palette.cardMint,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  softTagText: {
+    color: palette.textSoft,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  riskMeterWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 18,
+    backgroundColor: palette.cardMint,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  riskMeterValue: {
+    color: palette.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  riskMeterLabel: {
+    color: palette.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
+  alertCard: {
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  alertIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  alertTitle: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  alertDescription: {
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  alertTime: {
+    marginTop: 6,
+    color: palette.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
+  recommendationCard: {
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  recommendationIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  recommendationTitle: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  recommendationMessage: {
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  recommendationValueWrap: {
+    marginLeft: 10,
+    alignItems: 'flex-end',
+  },
+  recommendationValue: {
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  recommendationValueLabel: {
+    color: palette.textMuted,
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+
+  supplierCard: {
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 14,
+  },
+  supplierTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  supplierIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: palette.blueSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  supplierName: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  supplierMeta: {
+    color: palette.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  supplierRiskText: {
+    marginTop: 10,
+    color: palette.textSoft,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  healthBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  healthBadgeText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+
+  complianceGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 18,
+  },
+  complianceCard: {
+    width: cardWidth,
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    alignItems: 'center',
+  },
+  complianceValue: {
+    color: palette.text,
+    fontSize: 28,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  complianceTitle: {
+    color: palette.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+
+  quickActionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  quickActionCard: {
+    width: cardWidth,
+    backgroundColor: palette.card,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  quickActionIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  quickActionTitle: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  quickActionSubtitle: {
+    color: palette.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+
+  emptyCard: {
+    backgroundColor: palette.card,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: 22,
+    alignItems: 'center',
+  },
+  emptyIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: palette.greenSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  emptyTitle: {
+    color: palette.text,
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
 });

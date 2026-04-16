@@ -9,467 +9,565 @@ import {
   Text,
   TouchableOpacity,
   View,
-  RefreshControl,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import * as Haptics from 'expo-haptics';
+import Papa from 'papaparse';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
+import * as Haptics from 'expo-haptics';
 import { supabase } from '../../lib/supabase';
 
 const palette = {
-  bg: '#0B1016',
-  bg2: '#101826',
-  card: '#131C27',
-  card2: '#182232',
-  card3: '#1C293B',
-  border: 'rgba(255,255,255,0.08)',
-  text: '#F8FAFC',
-  textSoft: '#CBD5E1',
-  textMuted: '#94A3B8',
-  primary: '#3B82F6',
-  primary2: '#2563EB',
-  primarySoft: '#93C5FD',
+  bg: '#F4FAF7',
+  bg2: '#ECFDF3',
+  bg3: '#E6FFF1',
+  card: '#FFFFFF',
+  cardSoft: '#F8FFFB',
+  border: '#D9F7E5',
+  borderStrong: '#B7ECCC',
+  text: '#0F172A',
+  textSoft: '#334155',
+  textMuted: '#64748B',
+  primary: '#22C55E',
+  primary2: '#16A34A',
   success: '#10B981',
   warning: '#F59E0B',
   danger: '#EF4444',
+  info: '#3B82F6',
   purple: '#8B5CF6',
-  cyan: '#06B6D4',
+  greenSoft: '#ECFDF3',
+  blueSoft: '#EEF6FF',
+  redSoft: '#FFF0F0',
+  yellowSoft: '#FFF8DB',
 };
 
-const STORAGE_BUCKET = 'csv-uploads';
-const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024;
-const MAX_PREVIEW_ROWS = 8;
-const MAX_PREVIEW_COLUMNS = 8;
-
-type PickedFile = {
+type CsvProductRow = {
   name: string;
-  uri: string;
-  mimeType?: string | null;
-  size?: number | null;
+  category?: string;
+  sku?: string;
+  barcode?: string;
+  stock_quantity?: string | number;
+  min_stock_level?: string | number;
+  selling_price?: string | number;
+  cost_price?: string | number;
+  expiry_date?: string;
+  supplier_name?: string;
 };
 
-type ParsedCsv = {
-  headers: string[];
-  rows: string[][];
-  totalRows: number;
-  inferredColumns: string[];
+type ParsedRow = {
+  name: string;
+  category: string | null;
+  sku: string | null;
+  barcode: string | null;
+  stock_quantity: number;
+  min_stock_level: number;
+  selling_price: number;
+  cost_price: number;
+  expiry_date: string | null;
+  supplier_name: string | null;
 };
 
-type ValidationItem = {
-  label: string;
-  status: 'success' | 'warning' | 'danger';
-  message: string;
-};
+const REQUIRED_COLUMNS = [
+  'name',
+  'category',
+  'stock_quantity',
+  'min_stock_level',
+  'selling_price',
+  'cost_price',
+  'expiry_date',
+  'supplier_name',
+];
 
-function formatFileSize(bytes?: number | null) {
-  if (!bytes || bytes <= 0) return '—';
-  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${bytes} B`;
+function normalizeHeader(header: string) {
+  return header.trim().toLowerCase();
 }
 
-function formatDateTime(date = new Date()) {
-  return date.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+function safeString(value: unknown) {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
 }
 
-function inferUsefulColumns(headers: string[]) {
-  const patterns = [
-    { key: 'product_name', keywords: ['product', 'item', 'name', 'sku'] },
-    { key: 'category', keywords: ['category', 'group', 'segment'] },
-    { key: 'price', keywords: ['price', 'amount', 'cost', 'value'] },
-    { key: 'quantity', keywords: ['qty', 'quantity', 'units', 'volume'] },
-    { key: 'date', keywords: ['date', 'created', 'time', 'period'] },
-    { key: 'region', keywords: ['region', 'country', 'market', 'location'] },
-  ];
-
-  const normalized = headers.map((h) => h.trim().toLowerCase());
-
-  return patterns
-    .filter((p) => normalized.some((h) => p.keywords.some((k) => h.includes(k))))
-    .map((p) => p.key);
+function safeNumber(value: unknown) {
+  const n = Number(String(value ?? '').replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
 }
 
-function parseCsvLine(line: string): string[] {
-  const result: string[] = [];
-  let current = '';
-  let insideQuotes = false;
+function normalizeDate(value: unknown): string | null {
+  const raw = safeString(value);
+  if (!raw) return null;
 
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    const next = line[i + 1];
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) return raw;
 
-    if (char === '"') {
-      if (insideQuotes && next === '"') {
-        current += '"';
-        i++;
-      } else {
-        insideQuotes = !insideQuotes;
-      }
-    } else if (char === ',' && !insideQuotes) {
-      result.push(current.trim());
-      current = '';
-    } else {
-      current += char;
-    }
+  const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slashMatch) {
+    const [, d, m, y] = slashMatch;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
   }
 
-  result.push(current.trim());
-  return result.map((item) => item.replace(/^"|"$/g, '').trim());
+  const dotMatch = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (dotMatch) {
+    const [, d, m, y] = dotMatch;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const d = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  return null;
 }
 
-function parseCsvText(rawText: string): ParsedCsv {
-  const cleaned = rawText
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  if (cleaned.length === 0) {
-    throw new Error('The selected CSV file is empty.');
-  }
-
-  const headers = parseCsvLine(cleaned[0]);
-
-  if (headers.length < 2) {
-    throw new Error('CSV must contain at least 2 columns.');
-  }
-
-  const rows = cleaned.slice(1).map((line) => parseCsvLine(line));
-
-  return {
-    headers,
-    rows: rows.slice(0, MAX_PREVIEW_ROWS),
-    totalRows: rows.length,
-    inferredColumns: inferUsefulColumns(headers),
-  };
+function daysUntil(dateString?: string | null) {
+  if (!dateString) return null;
+  const today = new Date();
+  const target = new Date(dateString);
+  today.setHours(0, 0, 0, 0);
+  target.setHours(0, 0, 0, 0);
+  const diff = target.getTime() - today.getTime();
+  return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
-async function readFileAsText(uri: string): Promise<string> {
-  const response = await fetch(uri);
-  if (!response.ok) {
-    throw new Error('Unable to read the selected file.');
-  }
-  return response.text();
+function marginPercent(selling: number, cost: number) {
+  if (selling <= 0) return 0;
+  return ((selling - cost) / selling) * 100;
 }
 
-async function readFileAsArrayBuffer(uri: string): Promise<ArrayBuffer> {
-  const response = await fetch(uri);
-  if (!response.ok) {
-    throw new Error('Unable to read the selected file for upload.');
-  }
-  return response.arrayBuffer();
-}
+function buildAlertsForRow(
+  row: ParsedRow,
+  productId: string,
+  userId: string
+) {
+  const alerts: {
+    user_id: string;
+    title: string;
+    description: string;
+    severity: 'low' | 'medium' | 'high';
+    source_type: 'system' | 'expiry' | 'stock' | 'pricing' | 'compliance' | 'supplier';
+    source_product_id: string;
+  }[] = [];
 
-function buildValidation(file: PickedFile | null, parsed: ParsedCsv | null): ValidationItem[] {
-  const items: ValidationItem[] = [];
+  const expiryDays = daysUntil(row.expiry_date);
+  const margin = marginPercent(row.selling_price, row.cost_price);
 
-  if (!file) {
-    items.push({
-      label: 'File selected',
-      status: 'warning',
-      message: 'No file selected yet.',
-    });
-    return items;
-  }
-
-  items.push({
-    label: 'File type',
-    status: file.name.toLowerCase().endsWith('.csv') ? 'success' : 'danger',
-    message: file.name.toLowerCase().endsWith('.csv')
-      ? 'Valid CSV file detected.'
-      : 'The selected file does not appear to be a CSV.',
-  });
-
-  items.push({
-    label: 'File size',
-    status:
-      (file.size || 0) > MAX_FILE_SIZE_BYTES
-        ? 'danger'
-        : (file.size || 0) > 8 * 1024 * 1024
-        ? 'warning'
-        : 'success',
-    message:
-      (file.size || 0) > MAX_FILE_SIZE_BYTES
-        ? 'File is too large. Please keep it under 15 MB.'
-        : `File size looks acceptable: ${formatFileSize(file.size)}.`,
-  });
-
-  if (parsed) {
-    const duplicateHeaders =
-      new Set(parsed.headers.map((h) => h.toLowerCase())).size !== parsed.headers.length;
-
-    items.push({
-      label: 'Columns detected',
-      status: parsed.headers.length >= 3 ? 'success' : 'warning',
-      message: `${parsed.headers.length} columns detected in this dataset.`,
-    });
-
-    items.push({
-      label: 'Rows detected',
-      status: parsed.totalRows > 0 ? 'success' : 'danger',
-      message: `${parsed.totalRows} data rows available for analysis.`,
-    });
-
-    items.push({
-      label: 'Header quality',
-      status: duplicateHeaders ? 'warning' : 'success',
-      message: duplicateHeaders
-        ? 'Some column names appear to be duplicated.'
-        : 'Column headers look unique.',
-    });
-
-    items.push({
-      label: 'Business relevance',
-      status: parsed.inferredColumns.length >= 2 ? 'success' : 'warning',
-      message:
-        parsed.inferredColumns.length >= 2
-          ? `Recognized likely business columns: ${parsed.inferredColumns.join(', ')}.`
-          : 'Only a few useful business columns were recognized automatically.',
+  if (row.stock_quantity <= row.min_stock_level) {
+    alerts.push({
+      user_id: userId,
+      title: `${row.name} below safe stock`,
+      description: `${row.name} has ${row.stock_quantity} units and is at or below minimum stock level (${row.min_stock_level}).`,
+      severity: row.stock_quantity <= 0 ? 'high' : 'medium',
+      source_type: 'stock',
+      source_product_id: productId,
     });
   }
 
-  return items;
+  if (expiryDays !== null && expiryDays < 0) {
+    alerts.push({
+      user_id: userId,
+      title: `${row.name} already expired`,
+      description: `${row.name} is marked with an expiry date that has already passed.`,
+      severity: 'high',
+      source_type: 'expiry',
+      source_product_id: productId,
+    });
+  } else if (expiryDays !== null && expiryDays <= 2) {
+    alerts.push({
+      user_id: userId,
+      title: `${row.name} expires very soon`,
+      description: `${row.name} expires in ${expiryDays} day(s) and needs immediate review.`,
+      severity: 'high',
+      source_type: 'expiry',
+      source_product_id: productId,
+    });
+  } else if (expiryDays !== null && expiryDays <= 7) {
+    alerts.push({
+      user_id: userId,
+      title: `${row.name} nearing expiry`,
+      description: `${row.name} expires in ${expiryDays} day(s).`,
+      severity: 'medium',
+      source_type: 'expiry',
+      source_product_id: productId,
+    });
+  }
+
+  if (!row.barcode || !row.sku || !row.supplier_name || !row.expiry_date) {
+    alerts.push({
+      user_id: userId,
+      title: `${row.name} missing product details`,
+      description: `One or more important fields are missing: barcode, sku, supplier, or expiry date.`,
+      severity: 'low',
+      source_type: 'compliance',
+      source_product_id: productId,
+    });
+  }
+
+  if (margin < 10) {
+    alerts.push({
+      user_id: userId,
+      title: `${row.name} weak margin`,
+      description: `${row.name} has a low estimated margin of ${margin.toFixed(0)}%.`,
+      severity: 'medium',
+      source_type: 'pricing',
+      source_product_id: productId,
+    });
+  }
+
+  return alerts;
 }
 
-function statusColor(status: ValidationItem['status']) {
-  if (status === 'success') return palette.success;
-  if (status === 'warning') return palette.warning;
-  return palette.danger;
+function buildRecommendationsForRow(
+  row: ParsedRow,
+  productId: string,
+  userId: string
+) {
+  const recommendations: {
+    user_id: string;
+    product_name: string;
+    product_id: string;
+    recommendation_type: 'discount' | 'restock' | 'price_up' | 'price_down';
+    message: string;
+    impact_value: number;
+  }[] = [];
+
+  const expiryDays = daysUntil(row.expiry_date);
+  const margin = marginPercent(row.selling_price, row.cost_price);
+  const stockValueAtSellPrice = row.stock_quantity * row.selling_price;
+
+  if (expiryDays !== null && expiryDays <= 5 && row.stock_quantity >= 8) {
+    recommendations.push({
+      user_id: userId,
+      product_name: row.name,
+      product_id: productId,
+      recommendation_type: 'discount',
+      message: `Apply a time-limited discount to reduce expiry waste on ${row.name}.`,
+      impact_value: Math.max(0, Number((stockValueAtSellPrice * 0.25).toFixed(2))),
+    });
+  }
+
+  if (row.stock_quantity <= row.min_stock_level) {
+    recommendations.push({
+      user_id: userId,
+      product_name: row.name,
+      product_id: productId,
+      recommendation_type: 'restock',
+      message: `Restock ${row.name} soon to avoid shelf gaps and lost sales.`,
+      impact_value: Math.max(0, Number((row.selling_price * Math.max(5, row.min_stock_level)).toFixed(2))),
+    });
+  }
+
+  if (margin < 10 && expiryDays !== null && expiryDays > 10) {
+    recommendations.push({
+      user_id: userId,
+      product_name: row.name,
+      product_id: productId,
+      recommendation_type: 'price_up',
+      message: `Consider a small price increase for ${row.name} because margin is currently weak.`,
+      impact_value: Math.max(0, Number((row.stock_quantity * 0.10).toFixed(2))),
+    });
+  }
+
+  if (margin > 35 && expiryDays !== null && expiryDays <= 10) {
+    recommendations.push({
+      user_id: userId,
+      product_name: row.name,
+      product_id: productId,
+      recommendation_type: 'price_down',
+      message: `A slight markdown on ${row.name} may improve turnover before expiry.`,
+      impact_value: Math.max(0, Number((stockValueAtSellPrice * 0.12).toFixed(2))),
+    });
+  }
+
+  return recommendations;
 }
 
-function csvTemplateHeaders() {
-  return ['product_name', 'category', 'price', 'quantity', 'sales_date', 'region'];
-}
-
-function PreviewTable({
-  headers,
-  rows,
+function HeroStat({
+  label,
+  value,
+  tone,
 }: {
-  headers: string[];
-  rows: string[][];
+  label: string;
+  value: string;
+  tone: 'green' | 'blue' | 'yellow' | 'red';
 }) {
-  const visibleHeaders = headers.slice(0, MAX_PREVIEW_COLUMNS);
+  const bgMap = {
+    green: palette.greenSoft,
+    blue: palette.blueSoft,
+    yellow: palette.yellowSoft,
+    red: palette.redSoft,
+  } as const;
+
+  const textMap = {
+    green: palette.primary2,
+    blue: palette.info,
+    yellow: palette.warning,
+    red: palette.danger,
+  } as const;
 
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-      <View style={styles.tableWrap}>
-        <View style={styles.tableHeaderRow}>
-          {visibleHeaders.map((header, index) => (
-            <View key={`${header}-${index}`} style={styles.tableHeaderCell}>
-              <Text style={styles.tableHeaderText} numberOfLines={1}>
-                {header}
-              </Text>
-            </View>
-          ))}
-        </View>
-
-        {rows.length > 0 ? (
-          rows.map((row, rowIndex) => (
-            <View
-              key={`row-${rowIndex}`}
-              style={[
-                styles.tableDataRow,
-                rowIndex % 2 === 0 ? styles.tableRowAlt : null,
-              ]}
-            >
-              {visibleHeaders.map((_, cellIndex) => (
-                <View key={`cell-${rowIndex}-${cellIndex}`} style={styles.tableDataCell}>
-                  <Text style={styles.tableDataText} numberOfLines={2}>
-                    {row[cellIndex] || '—'}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ))
-        ) : (
-          <View style={styles.tableEmptyRow}>
-            <Text style={styles.tableEmptyText}>No rows to preview.</Text>
-          </View>
-        )}
-      </View>
-    </ScrollView>
+    <View style={[styles.heroStat, { backgroundColor: bgMap[tone] }]}>
+      <Text style={[styles.heroStatValue, { color: textMap[tone] }]}>{value}</Text>
+      <Text style={styles.heroStatLabel}>{label}</Text>
+    </View>
   );
 }
 
-export default function UploadCsvScreen() {
-  const [selectedFile, setSelectedFile] = useState<PickedFile | null>(null);
-  const [parsedCsv, setParsedCsv] = useState<ParsedCsv | null>(null);
+export default function UploadFoodCsvScreen() {
+  const [fileName, setFileName] = useState<string>('');
+  const [rawRows, setRawRows] = useState<CsvProductRow[]>([]);
+  const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [missingColumns, setMissingColumns] = useState<string[]>([]);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [isPicking, setIsPicking] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
-  const [picking, setPicking] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const previewRows = useMemo(() => parsedRows.slice(0, 8), [parsedRows]);
 
-  const [lastUploadMessage, setLastUploadMessage] = useState<{
-    type: 'success' | 'error';
-    text: string;
-  } | null>(null);
+  const stats = useMemo(() => {
+    const total = parsedRows.length;
+    const lowStock = parsedRows.filter(
+      (r) => r.stock_quantity <= r.min_stock_level
+    ).length;
+    const nearExpiry = parsedRows.filter((r) => {
+      const d = daysUntil(r.expiry_date);
+      return d !== null && d >= 0 && d <= 7;
+    }).length;
+    const weakMargin = parsedRows.filter(
+      (r) => marginPercent(r.selling_price, r.cost_price) < 15
+    ).length;
 
-  const validations = useMemo(
-    () => buildValidation(selectedFile, parsedCsv),
-    [selectedFile, parsedCsv]
-  );
+    return { total, lowStock, nearExpiry, weakMargin };
+  }, [parsedRows]);
 
-  const canUpload = useMemo(() => {
-    if (!selectedFile || !parsedCsv) return false;
-    if (!selectedFile.name.toLowerCase().endsWith('.csv')) return false;
-    if ((selectedFile.size || 0) > MAX_FILE_SIZE_BYTES) return false;
-    if (parsedCsv.totalRows <= 0) return false;
-    return true;
-  }, [selectedFile, parsedCsv]);
-
-  const resetState = () => {
-    setSelectedFile(null);
-    setParsedCsv(null);
-    setLastUploadMessage(null);
-  };
-
-  const handlePickFile = async () => {
+  const pickCsv = async () => {
     try {
-      setPicking(true);
-      setLastUploadMessage(null);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      setIsPicking(true);
+      setErrors([]);
+      setMissingColumns([]);
 
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['text/csv', 'text/comma-separated-values', 'application/vnd.ms-excel', '*/*'],
+        type: ['text/csv', 'text/comma-separated-values', 'application/vnd.ms-excel'],
         copyToCacheDirectory: true,
         multiple: false,
       });
 
-      if (result.canceled) return;
-
-      const asset = result.assets?.[0];
-      if (!asset) {
-        throw new Error('No file was selected.');
-      }
-
-      const picked: PickedFile = {
-        name: asset.name,
-        uri: asset.uri,
-        mimeType: asset.mimeType,
-        size: asset.size,
-      };
-
-      setSelectedFile(picked);
-      setParsedCsv(null);
-
-      setAnalyzing(true);
-      const text = await readFileAsText(asset.uri);
-      const parsed = parseCsvText(text);
-      setParsedCsv(parsed);
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error: any) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setParsedCsv(null);
-      setSelectedFile(null);
-
-      Alert.alert(
-        'CSV Error',
-        error?.message || 'Unable to open and analyze this CSV file.'
-      );
-    } finally {
-      setPicking(false);
-      setAnalyzing(false);
-    }
-  };
-
-  const handleUpload = async () => {
-    if (!selectedFile || !parsedCsv) {
-      Alert.alert('Missing file', 'Please select and validate a CSV file first.');
-      return;
-    }
-
-    if (!canUpload) {
-      Alert.alert(
-        'Upload blocked',
-        'This file is not ready for upload. Please check the validation results first.'
-      );
-      return;
-    }
-
-    try {
-      setUploading(true);
-      setLastUploadMessage(null);
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-
-      const {
-        data: { session },
-        error: sessionError,
-      } = await supabase.auth.getSession();
-
-      if (sessionError) throw sessionError;
-
-      const user = session?.user;
-
-      if (!user) {
-        Alert.alert('Login required', 'Please sign in first, then try uploading again.');
-        router.replace('/login');
+      if (result.canceled) {
+        setIsPicking(false);
         return;
       }
 
-      const fileExt = selectedFile.name.split('.').pop()?.toLowerCase() || 'csv';
-      const safeName = selectedFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const storagePath = `${user.id}/${Date.now()}_${safeName}`;
+      const asset = result.assets?.[0];
+      if (!asset) {
+        setIsPicking(false);
+        return;
+      }
 
-      const arrayBuffer = await readFileAsArrayBuffer(selectedFile.uri);
+      setFileName(asset.name || 'products.csv');
 
-      const { error: storageError } = await supabase.storage
-        .from(STORAGE_BUCKET)
-        .upload(storagePath, arrayBuffer, {
-          contentType: selectedFile.mimeType || 'text/csv',
-          upsert: false,
+      let textContent = '';
+
+      if (asset.uri.startsWith('file://')) {
+        const response = await fetch(asset.uri);
+        textContent = await response.text();
+      } else if (Platform.OS === 'web' && asset.file) {
+        textContent = await asset.file.text();
+      } else {
+        const response = await fetch(asset.uri);
+        textContent = await response.text();
+      }
+
+      Papa.parse<CsvProductRow>(textContent, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          const incomingHeaders = (results.meta.fields || []).map(normalizeHeader);
+          setHeaders(incomingHeaders);
+
+          const missing = REQUIRED_COLUMNS.filter(
+            (col) => !incomingHeaders.includes(col)
+          );
+          setMissingColumns(missing);
+
+          const parseErrors: string[] = [];
+          const cleanedRows: ParsedRow[] = [];
+
+          if (missing.length > 0) {
+            setErrors([
+              `Missing required columns: ${missing.join(', ')}`,
+            ]);
+            setRawRows([]);
+            setParsedRows([]);
+            return;
+          }
+
+          const originalRows = results.data || [];
+          setRawRows(originalRows);
+
+          originalRows.forEach((row, index) => {
+            const normalizedRow: ParsedRow = {
+              name: safeString(row.name),
+              category: safeString(row.category) || null,
+              sku: safeString(row.sku) || null,
+              barcode: safeString(row.barcode) || null,
+              stock_quantity: safeNumber(row.stock_quantity),
+              min_stock_level: safeNumber(row.min_stock_level),
+              selling_price: safeNumber(row.selling_price),
+              cost_price: safeNumber(row.cost_price),
+              expiry_date: normalizeDate(row.expiry_date),
+              supplier_name: safeString(row.supplier_name) || null,
+            };
+
+            if (!normalizedRow.name) {
+              parseErrors.push(`Row ${index + 2}: name is required.`);
+              return;
+            }
+
+            if (normalizedRow.selling_price < 0 || normalizedRow.cost_price < 0) {
+              parseErrors.push(`Row ${index + 2}: prices cannot be negative.`);
+              return;
+            }
+
+            if (normalizedRow.stock_quantity < 0 || normalizedRow.min_stock_level < 0) {
+              parseErrors.push(`Row ${index + 2}: stock values cannot be negative.`);
+              return;
+            }
+
+            cleanedRows.push(normalizedRow);
+          });
+
+          setErrors(parseErrors);
+          setParsedRows(cleanedRows);
+        },
+        error: (error: Error) => {
+  setErrors([error.message || 'Failed to parse CSV file.']);
+  setRawRows([]);
+  setParsedRows([]);
+},
+      });
+    } catch (error: any) {
+      setErrors([error?.message || 'Failed to open CSV file.']);
+    } finally {
+      setIsPicking(false);
+    }
+  };
+
+  const resetAll = () => {
+    setFileName('');
+    setRawRows([]);
+    setParsedRows([]);
+    setHeaders([]);
+    setMissingColumns([]);
+    setErrors([]);
+  };
+
+  const uploadToSupabase = async () => {
+    try {
+      if (parsedRows.length === 0) {
+        Alert.alert('No valid rows', 'Please select a valid CSV file first.');
+        return;
+      }
+
+      if (errors.length > 0) {
+        Alert.alert('Fix CSV issues', 'Please resolve the row errors before uploading.');
+        return;
+      }
+
+      setIsUploading(true);
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError) throw authError;
+      if (!user) {
+        Alert.alert('Authentication required', 'Please log in again.');
+        return;
+      }
+
+      const productPayload = parsedRows.map((row) => ({
+        user_id: user.id,
+        name: row.name,
+        category: row.category,
+        sku: row.sku,
+        barcode: row.barcode,
+        stock_quantity: row.stock_quantity,
+        min_stock_level: row.min_stock_level,
+        selling_price: row.selling_price,
+        cost_price: row.cost_price,
+        expiry_date: row.expiry_date,
+        supplier_name: row.supplier_name,
+        status: 'active',
+      }));
+
+      const { data: insertedProducts, error: productError } = await supabase
+        .from('food_products')
+        .insert(productPayload)
+        .select('id, name, category, sku, barcode, stock_quantity, min_stock_level, selling_price, cost_price, expiry_date, supplier_name');
+
+      if (productError) throw productError;
+
+      const allAlerts: any[] = [];
+      const allRecommendations: any[] = [];
+
+      (insertedProducts || []).forEach((product) => {
+        const row: ParsedRow = {
+          name: product.name,
+          category: product.category,
+          sku: product.sku,
+          barcode: product.barcode,
+          stock_quantity: product.stock_quantity,
+          min_stock_level: product.min_stock_level,
+          selling_price: Number(product.selling_price || 0),
+          cost_price: Number(product.cost_price || 0),
+          expiry_date: product.expiry_date,
+          supplier_name: product.supplier_name,
+        };
+
+        allAlerts.push(...buildAlertsForRow(row, product.id, user.id));
+        allRecommendations.push(...buildRecommendationsForRow(row, product.id, user.id));
+      });
+
+      if (allAlerts.length > 0) {
+        const { error: alertsError } = await supabase
+          .from('food_alerts')
+          .insert(allAlerts);
+        if (alertsError) throw alertsError;
+      }
+
+      if (allRecommendations.length > 0) {
+        const { error: recommendationsError } = await supabase
+          .from('food_recommendations')
+          .insert(allRecommendations);
+        if (recommendationsError) throw recommendationsError;
+      }
+
+      const { error: logError } = await supabase
+        .from('food_import_logs')
+        .insert({
+          user_id: user.id,
+          file_name: fileName || 'products.csv',
+          row_count: parsedRows.length,
+          status: 'completed',
+          notes: `Imported ${parsedRows.length} rows, generated ${allAlerts.length} alerts and ${allRecommendations.length} recommendations.`,
         });
 
-      if (storageError) throw storageError;
+      if (logError) throw logError;
 
-      const { data: publicUrlData } = supabase.storage
-        .from(STORAGE_BUCKET)
-        .getPublicUrl(storagePath);
-
-      const { error: insertError } = await supabase.from('uploads').insert({
-        user_id: user.id,
-        file_name: selectedFile.name,
-        file_path: storagePath,
-        file_url: publicUrlData?.publicUrl || null,
-        file_type: fileExt,
-        file_size: selectedFile.size || null,
-        row_count: parsedCsv.totalRows,
-        column_count: parsedCsv.headers.length,
-        status: 'uploaded',
-        uploaded_at: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-        metadata: {
-          headers: parsedCsv.headers,
-          inferred_columns: parsedCsv.inferredColumns,
-          preview_generated_at: new Date().toISOString(),
-        },
-      });
-
-      if (insertError) throw insertError;
-
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      setLastUploadMessage({
-        type: 'success',
-        text: `CSV uploaded successfully on ${formatDateTime()}. Your dataset is now ready for analysis.`,
-      });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
       Alert.alert(
-        'Upload successful',
-        'Your CSV file has been uploaded successfully. You can now proceed to analysis.',
+        'Upload completed',
+        `Inserted ${parsedRows.length} products, ${allAlerts.length} alerts, and ${allRecommendations.length} recommendations.`,
         [
           {
-            text: 'Open dashboard',
+            text: 'Open Dashboard',
             onPress: () => router.push('/(tabs)'),
           },
           {
@@ -478,363 +576,234 @@ export default function UploadCsvScreen() {
           },
         ]
       );
+
+      resetAll();
     } catch (error: any) {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      setLastUploadMessage({
-        type: 'error',
-        text:
-          error?.message ||
-          'Something went wrong while uploading your CSV file.',
-      });
+      Alert.alert('Upload failed', error?.message || 'Something went wrong while uploading.');
     } finally {
-      setUploading(false);
+      setIsUploading(false);
     }
   };
 
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 700));
-    setRefreshing(false);
-  };
+  const csvTemplate = `name,category,sku,barcode,stock_quantity,min_stock_level,selling_price,cost_price,expiry_date,supplier_name
+Fresh Milk 1L,Dairy,DAIRY-001,100000000001,18,10,1.59,1.05,2026-04-22,Kos Dairy
+Greek Yogurt 500g,Dairy,DAIRY-002,100000000002,11,8,2.49,1.60,2026-04-21,Kos Dairy
+White Bread 500g,Bakery,BAKE-001,100000000004,4,10,0.79,0.45,2026-04-19,Urban Bakery`;
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <LinearGradient
-        colors={[palette.bg, palette.bg2]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.container}
-      >
+      <LinearGradient colors={[palette.bg, palette.bg2, palette.bg3]} style={styles.container}>
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
         >
-          <View style={styles.heroCard}>
-            <LinearGradient
-              colors={['rgba(59,130,246,0.18)', 'rgba(37,99,235,0.06)']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.heroOverlay}
-            />
-
+          <LinearGradient
+            colors={['#E7FFF1', '#D9FCE7', '#F6FFF9']}
+            style={styles.heroCard}
+          >
             <View style={styles.heroTopRow}>
-              <TouchableOpacity
-                style={styles.iconGhostButton}
-                onPress={() => router.back()}
-              >
-                <Ionicons name="arrow-back" size={18} color={palette.textSoft} />
-              </TouchableOpacity>
+              <View style={styles.heroIcon}>
+                <Ionicons name="cloud-upload-outline" size={22} color={palette.primary2} />
+              </View>
 
               <TouchableOpacity
-                style={styles.iconGhostButton}
-                onPress={resetState}
+                style={styles.headerButton}
+                onPress={() => router.push('/(tabs)')}
               >
-                <Ionicons name="refresh-outline" size={18} color={palette.textSoft} />
+                <Ionicons name="arrow-back-outline" size={20} color={palette.primary2} />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.heroBadge}>
-              <Ionicons name="cloud-upload-outline" size={14} color={palette.primarySoft} />
-              <Text style={styles.heroBadgeText}>CSV upload center</Text>
-            </View>
-
-            <Text style={styles.heroTitle}>Upload a dataset for analysis</Text>
+            <Text style={styles.heroTitle}>Upload food products CSV</Text>
             <Text style={styles.heroSubtitle}>
-              Add a CSV file containing pricing, product, sales, or market data.
-              RiskLens will validate the structure and prepare it for AI-powered
-              analysis and reporting.
+              Import your product inventory into Supabase and automatically generate alerts and business recommendations.
             </Text>
 
-            <View style={styles.heroInfoRow}>
-              <View style={styles.heroInfoItem}>
-                <Text style={styles.heroInfoLabel}>Supported type</Text>
-                <Text style={styles.heroInfoValue}>CSV</Text>
-              </View>
-              <View style={styles.heroInfoItem}>
-                <Text style={styles.heroInfoLabel}>Max size</Text>
-                <Text style={styles.heroInfoValue}>15 MB</Text>
-              </View>
-              <View style={styles.heroInfoItem}>
-                <Text style={styles.heroInfoLabel}>Preview rows</Text>
-                <Text style={styles.heroInfoValue}>8</Text>
-              </View>
+            <View style={styles.heroStatsRow}>
+              <HeroStat label="Rows ready" value={`${stats.total}`} tone="green" />
+              <HeroStat label="Low stock" value={`${stats.lowStock}`} tone="yellow" />
+              <HeroStat label="Near expiry" value={`${stats.nearExpiry}`} tone="red" />
+              <HeroStat label="Weak margin" value={`${stats.weakMargin}`} tone="blue" />
             </View>
-          </View>
+          </LinearGradient>
 
-          <View style={styles.actionsBlock}>
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Step 1 — Choose a CSV file</Text>
+            <Text style={styles.sectionSubtitle}>
+              Required columns: {REQUIRED_COLUMNS.join(', ')}
+            </Text>
+
             <TouchableOpacity
-              style={styles.pickButton}
-              onPress={handlePickFile}
-              disabled={picking || analyzing || uploading}
+              style={styles.primaryButton}
+              onPress={pickCsv}
               activeOpacity={0.9}
+              disabled={isPicking}
             >
               <LinearGradient
                 colors={[palette.primary, palette.primary2]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.pickButtonInner}
+                style={styles.primaryButtonGradient}
               >
-                {picking || analyzing ? (
-                  <ActivityIndicator color="#FFFFFF" />
+                {isPicking ? (
+                  <ActivityIndicator color="#fff" />
                 ) : (
                   <>
-                    <Ionicons name="document-attach-outline" size={18} color="#FFFFFF" />
-                    <Text style={styles.pickButtonText}>Choose CSV file</Text>
+                    <Ionicons name="document-attach-outline" size={18} color="#fff" />
+                    <Text style={styles.primaryButtonText}>Choose CSV</Text>
                   </>
                 )}
               </LinearGradient>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[
-                styles.uploadButton,
-                !canUpload || uploading ? styles.uploadButtonDisabled : null,
-              ]}
-              onPress={handleUpload}
-              disabled={!canUpload || uploading}
-              activeOpacity={0.9}
-            >
-              {uploading ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <>
-                  <Ionicons name="cloud-upload-outline" size={18} color="#FFFFFF" />
-                  <Text style={styles.uploadButtonText}>Upload dataset</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            {fileName ? (
+              <View style={styles.fileCard}>
+                <View style={styles.fileCardLeft}>
+                  <View style={styles.fileIconWrap}>
+                    <MaterialCommunityIcons name="file-delimited-outline" size={22} color={palette.success} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.fileName}>{fileName}</Text>
+                    <Text style={styles.fileMeta}>
+                      {rawRows.length} raw rows • {parsedRows.length} valid rows
+                    </Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity onPress={resetAll}>
+                  <Ionicons name="trash-outline" size={20} color={palette.danger} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
 
-          {lastUploadMessage ? (
-            <View
-              style={[
-                styles.messageCard,
-                lastUploadMessage.type === 'success'
-                  ? styles.messageSuccess
-                  : styles.messageError,
-              ]}
-            >
-              <Ionicons
-                name={
-                  lastUploadMessage.type === 'success'
-                    ? 'checkmark-circle-outline'
-                    : 'alert-circle-outline'
-                }
-                size={18}
-                color={
-                  lastUploadMessage.type === 'success'
-                    ? palette.success
-                    : palette.danger
-                }
-                style={{ marginRight: 8, marginTop: 2 }}
-              />
-              <Text
-                style={[
-                  styles.messageText,
-                  {
-                    color:
-                      lastUploadMessage.type === 'success'
-                        ? '#BBF7D0'
-                        : '#FECACA',
-                  },
-                ]}
-              >
-                {lastUploadMessage.text}
-              </Text>
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>CSV template example</Text>
+            <Text style={styles.sectionSubtitle}>
+              Copy this exact structure for your imports.
+            </Text>
+
+            <View style={styles.templateBox}>
+              <Text style={styles.templateText}>{csvTemplate}</Text>
+            </View>
+          </View>
+
+          {headers.length > 0 ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Detected columns</Text>
+              <View style={styles.chipsWrap}>
+                {headers.map((header) => (
+                  <View key={header} style={styles.chip}>
+                    <Text style={styles.chipText}>{header}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
           ) : null}
 
-          <View style={styles.card}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Selected file</Text>
-              <Text style={styles.sectionSubtitle}>
-                The current dataset prepared for upload
-              </Text>
-            </View>
-
-            {selectedFile ? (
-              <View style={styles.fileSummaryCard}>
-                <View style={styles.fileIconWrap}>
-                  <MaterialCommunityIcons
-                    name="file-delimited-outline"
-                    size={24}
-                    color={palette.primarySoft}
-                  />
-                </View>
-
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.fileName} numberOfLines={1}>
-                    {selectedFile.name}
-                  </Text>
-                  <Text style={styles.fileMeta}>
-                    {formatFileSize(selectedFile.size)} •{' '}
-                    {selectedFile.mimeType || 'text/csv'}
-                  </Text>
-                </View>
-              </View>
-            ) : (
-              <View style={styles.emptyCard}>
-                <Ionicons name="document-outline" size={22} color={palette.primarySoft} />
-                <Text style={styles.emptyTitle}>No file selected</Text>
-                <Text style={styles.emptySubtitle}>
-                  Pick a CSV file to preview its structure and prepare it for upload.
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.card}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Validation checks</Text>
-              <Text style={styles.sectionSubtitle}>
-                Quick quality checks before upload
-              </Text>
-            </View>
-
-            <View style={styles.validationList}>
-              {validations.map((item, index) => (
-                <View key={`${item.label}-${index}`} style={styles.validationRow}>
-                  <View
-                    style={[
-                      styles.validationIconWrap,
-                      { backgroundColor: `${statusColor(item.status)}20` },
-                    ]}
-                  >
-                    <Ionicons
-                      name={
-                        item.status === 'success'
-                          ? 'checkmark-circle-outline'
-                          : item.status === 'warning'
-                          ? 'warning-outline'
-                          : 'alert-circle-outline'
-                      }
-                      size={18}
-                      color={statusColor(item.status)}
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.validationLabel}>{item.label}</Text>
-                    <Text style={styles.validationMessage}>{item.message}</Text>
-                  </View>
-                </View>
+          {missingColumns.length > 0 ? (
+            <View style={[styles.sectionCard, styles.errorCard]}>
+              <Text style={styles.errorTitle}>Missing required columns</Text>
+              {missingColumns.map((col) => (
+                <Text key={col} style={styles.errorLine}>• {col}</Text>
               ))}
             </View>
-          </View>
+          ) : null}
 
-          <View style={styles.card}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Dataset preview</Text>
-              <Text style={styles.sectionSubtitle}>
-                First {MAX_PREVIEW_ROWS} rows from your file
-              </Text>
+          {errors.length > 0 ? (
+            <View style={[styles.sectionCard, styles.errorCard]}>
+              <Text style={styles.errorTitle}>CSV row issues</Text>
+              {errors.slice(0, 12).map((err, index) => (
+                <Text key={`${err}-${index}`} style={styles.errorLine}>• {err}</Text>
+              ))}
+              {errors.length > 12 ? (
+                <Text style={styles.errorLine}>• And {errors.length - 12} more...</Text>
+              ) : null}
             </View>
+          ) : null}
 
-            {parsedCsv ? (
-              <>
-                <View style={styles.previewStatsRow}>
-                  <View style={styles.previewStatBox}>
-                    <Text style={styles.previewStatLabel}>Columns</Text>
-                    <Text style={styles.previewStatValue}>{parsedCsv.headers.length}</Text>
-                  </View>
+          {previewRows.length > 0 ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Preview</Text>
+              <Text style={styles.sectionSubtitle}>
+                First valid rows that will be inserted into Supabase.
+              </Text>
 
-                  <View style={styles.previewStatBox}>
-                    <Text style={styles.previewStatLabel}>Rows</Text>
-                    <Text style={styles.previewStatValue}>{parsedCsv.totalRows}</Text>
-                  </View>
+              <View style={styles.previewList}>
+                {previewRows.map((row, index) => {
+                  const margin = marginPercent(row.selling_price, row.cost_price);
+                  const expiryDays = daysUntil(row.expiry_date);
 
-                  <View style={styles.previewStatBox}>
-                    <Text style={styles.previewStatLabel}>Recognized</Text>
-                    <Text style={styles.previewStatValue}>
-                      {parsedCsv.inferredColumns.length}
-                    </Text>
-                  </View>
-                </View>
-
-                <PreviewTable headers={parsedCsv.headers} rows={parsedCsv.rows} />
-
-                <View style={styles.inferredBlock}>
-                  <Text style={styles.inferredTitle}>Recognized business columns</Text>
-                  {parsedCsv.inferredColumns.length > 0 ? (
-                    <View style={styles.tagWrap}>
-                      {parsedCsv.inferredColumns.map((item) => (
-                        <View key={item} style={styles.tag}>
-                          <Text style={styles.tagText}>{item}</Text>
+                  return (
+                    <View key={`${row.name}-${index}`} style={styles.previewCard}>
+                      <View style={styles.previewTop}>
+                        <View style={styles.previewIconWrap}>
+                          <MaterialCommunityIcons name="food-outline" size={18} color={palette.primary2} />
                         </View>
-                      ))}
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.previewName}>{row.name}</Text>
+                          <Text style={styles.previewMeta}>
+                            {row.category || 'General'} • Supplier: {row.supplier_name || 'N/A'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.previewStats}>
+                        <View style={styles.previewStat}>
+                          <Text style={styles.previewStatValue}>{row.stock_quantity}</Text>
+                          <Text style={styles.previewStatLabel}>Stock</Text>
+                        </View>
+                        <View style={styles.previewStat}>
+                          <Text style={styles.previewStatValue}>{row.min_stock_level}</Text>
+                          <Text style={styles.previewStatLabel}>Min</Text>
+                        </View>
+                        <View style={styles.previewStat}>
+                          <Text style={styles.previewStatValue}>€{row.selling_price.toFixed(2)}</Text>
+                          <Text style={styles.previewStatLabel}>Sell</Text>
+                        </View>
+                        <View style={styles.previewStat}>
+                          <Text style={styles.previewStatValue}>{margin.toFixed(0)}%</Text>
+                          <Text style={styles.previewStatLabel}>Margin</Text>
+                        </View>
+                        <View style={styles.previewStat}>
+                          <Text style={styles.previewStatValue}>
+                            {expiryDays === null ? '—' : `${expiryDays}d`}
+                          </Text>
+                          <Text style={styles.previewStatLabel}>Expiry</Text>
+                        </View>
+                      </View>
                     </View>
-                  ) : (
-                    <Text style={styles.inferredEmpty}>
-                      No common business columns were strongly recognized from the header names.
-                    </Text>
-                  )}
-                </View>
-              </>
-            ) : (
-              <View style={styles.emptyCard}>
-                <Ionicons name="grid-outline" size={22} color={palette.primarySoft} />
-                <Text style={styles.emptyTitle}>No preview yet</Text>
-                <Text style={styles.emptySubtitle}>
-                  Once you select a CSV, RiskLens will parse the headers and show a preview here.
-                </Text>
+                  );
+                })}
               </View>
-            )}
-          </View>
-
-          <View style={styles.card}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Recommended CSV structure</Text>
-              <Text style={styles.sectionSubtitle}>
-                Example columns that work well for RiskLens
-              </Text>
             </View>
+          ) : null}
 
-            <View style={styles.templateCard}>
-              {csvTemplateHeaders().map((item) => (
-                <View key={item} style={styles.templateRow}>
-                  <Ionicons name="ellipse" size={8} color={palette.primarySoft} />
-                  <Text style={styles.templateText}>{item}</Text>
-                </View>
-              ))}
-            </View>
-
-            <Text style={styles.helperText}>
-              You do not need all of these columns, but pricing, category, quantity,
-              and date fields help produce better analysis and market insight results.
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Step 2 — Upload into Supabase</Text>
+            <Text style={styles.sectionSubtitle}>
+              This will insert products and automatically create alerts and recommendations.
             </Text>
-          </View>
-
-          <View style={styles.bottomActions}>
-            <TouchableOpacity
-              style={styles.secondaryAction}
-              onPress={() => router.push('/(tabs)')}
-            >
-              <Ionicons name="grid-outline" size={18} color={palette.textSoft} />
-              <Text style={styles.secondaryActionText}>Back to dashboard</Text>
-            </TouchableOpacity>
 
             <TouchableOpacity
               style={[
-                styles.primaryAction,
-                !canUpload || uploading ? styles.primaryActionDisabled : null,
+                styles.uploadButton,
+                (parsedRows.length === 0 || errors.length > 0 || isUploading) && styles.uploadButtonDisabled,
               ]}
-              onPress={handleUpload}
-              disabled={!canUpload || uploading}
+              onPress={uploadToSupabase}
+              activeOpacity={0.9}
+              disabled={parsedRows.length === 0 || errors.length > 0 || isUploading}
             >
-              {uploading ? (
-                <ActivityIndicator color="#FFFFFF" />
+              {isUploading ? (
+                <ActivityIndicator color="#fff" />
               ) : (
                 <>
-                  <Ionicons name="rocket-outline" size={18} color="#FFFFFF" />
-                  <Text style={styles.primaryActionText}>Upload and continue</Text>
+                  <Ionicons name="cloud-done-outline" size={18} color="#fff" />
+                  <Text style={styles.uploadButtonText}>Upload to Supabase</Text>
                 </>
               )}
             </TouchableOpacity>
           </View>
 
-          <View style={styles.footerSpace} />
+          <View style={{ height: 30 }} />
         </ScrollView>
       </LinearGradient>
     </SafeAreaView>
@@ -851,418 +820,287 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 18,
-    paddingTop: 18,
+    paddingTop: 16,
     paddingBottom: 24,
   },
+
   heroCard: {
-    backgroundColor: palette.card,
-    borderRadius: 26,
-    borderWidth: 1,
-    borderColor: palette.border,
+    borderRadius: 28,
     padding: 20,
-    marginBottom: 18,
-    overflow: 'hidden',
-  },
-  heroOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+    marginBottom: 20,
   },
   heroTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    alignItems: 'center',
   },
-  iconGhostButton: {
+  heroIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
+  },
+  headerButton: {
     width: 42,
     height: 42,
     borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderColor: palette.border,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  heroBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(59,130,246,0.12)',
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    marginBottom: 12,
-  },
-  heroBadgeText: {
-    color: palette.primarySoft,
-    fontSize: 12,
-    fontWeight: '700',
-    marginLeft: 6,
+    backgroundColor: '#FFFFFFCC',
+    borderWidth: 1,
+    borderColor: palette.borderStrong,
   },
   heroTitle: {
+    marginTop: 18,
     color: palette.text,
     fontSize: 28,
-    lineHeight: 35,
+    lineHeight: 34,
     fontWeight: '900',
-    letterSpacing: -0.7,
-    marginBottom: 10,
   },
   heroSubtitle: {
+    marginTop: 10,
     color: palette.textMuted,
     fontSize: 14,
-    lineHeight: 21,
-    marginBottom: 18,
+    lineHeight: 22,
+    fontWeight: '500',
   },
-  heroInfoRow: {
+  heroStatsRow: {
     flexDirection: 'row',
-    gap: 10,
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 18,
   },
-  heroInfoItem: {
-    flex: 1,
-    backgroundColor: palette.card2,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: 12,
+  heroStat: {
+    borderRadius: 18,
+    padding: 14,
+    minWidth: '47%',
   },
-  heroInfoLabel: {
-    color: palette.textMuted,
-    fontSize: 11,
+  heroStatValue: {
+    fontSize: 22,
+    fontWeight: '900',
     marginBottom: 4,
   },
-  heroInfoValue: {
-    color: palette.text,
-    fontSize: 15,
-    fontWeight: '800',
+  heroStatLabel: {
+    color: palette.textSoft,
+    fontSize: 12,
+    fontWeight: '700',
   },
-  actionsBlock: {
-    gap: 12,
-    marginBottom: 16,
-  },
-  pickButton: {
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  pickButtonInner: {
-    minHeight: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pickButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
-    marginLeft: 8,
-  },
-  uploadButton: {
-    minHeight: 54,
-    borderRadius: 16,
-    backgroundColor: palette.success,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  uploadButtonDisabled: {
-    opacity: 0.55,
-  },
-  uploadButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
-    marginLeft: 8,
-  },
-  card: {
+
+  sectionCard: {
     backgroundColor: palette.card,
     borderRadius: 22,
+    padding: 18,
     borderWidth: 1,
     borderColor: palette.border,
-    padding: 18,
     marginBottom: 16,
-  },
-  sectionHeader: {
-    marginBottom: 14,
   },
   sectionTitle: {
     color: palette.text,
     fontSize: 18,
-    fontWeight: '800',
-    marginBottom: 4,
+    fontWeight: '900',
+    marginBottom: 6,
   },
   sectionSubtitle: {
     color: palette.textMuted,
     fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 19,
+    marginBottom: 16,
+    fontWeight: '500',
   },
-  fileSummaryCard: {
-    backgroundColor: palette.card2,
+
+  primaryButton: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  primaryButtonGradient: {
+    minHeight: 54,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  primaryButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+
+  fileCard: {
+    marginTop: 16,
     borderRadius: 18,
+    padding: 14,
+    backgroundColor: palette.cardSoft,
     borderWidth: 1,
     borderColor: palette.border,
-    padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  fileCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    paddingRight: 12,
   },
   fileIconWrap: {
-    width: 48,
-    height: 48,
+    width: 46,
+    height: 46,
     borderRadius: 16,
-    backgroundColor: 'rgba(59,130,246,0.12)',
+    backgroundColor: palette.greenSoft,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
   fileName: {
     color: palette.text,
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '900',
     marginBottom: 4,
   },
   fileMeta: {
     color: palette.textMuted,
     fontSize: 12,
+    fontWeight: '600',
   },
-  validationList: {
-    gap: 12,
-  },
-  validationRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: palette.card2,
+
+  templateBox: {
+    backgroundColor: '#F8FAFC',
     borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: palette.border,
-    padding: 13,
   },
-  validationIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  validationLabel: {
-    color: palette.text,
-    fontSize: 14,
-    fontWeight: '800',
-    marginBottom: 4,
-  },
-  validationMessage: {
-    color: palette.textMuted,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  previewStatsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 14,
-  },
-  previewStatBox: {
-    flex: 1,
-    backgroundColor: palette.card2,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: 12,
-  },
-  previewStatLabel: {
-    color: palette.textMuted,
-    fontSize: 11,
-    marginBottom: 4,
-  },
-  previewStatValue: {
-    color: palette.text,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  tableWrap: {
-    minWidth: 720,
-    borderWidth: 1,
-    borderColor: palette.border,
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: palette.card2,
-  },
-  tableHeaderRow: {
-    flexDirection: 'row',
-    backgroundColor: palette.card3,
-  },
-  tableHeaderCell: {
-    width: 140,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRightWidth: 1,
-    borderRightColor: palette.border,
-  },
-  tableHeaderText: {
-    color: palette.text,
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  tableDataRow: {
-    flexDirection: 'row',
-  },
-  tableRowAlt: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
-  },
-  tableDataCell: {
-    width: 140,
-    minHeight: 52,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: palette.border,
-    borderRightWidth: 1,
-    borderRightColor: palette.border,
-    justifyContent: 'center',
-  },
-  tableDataText: {
+  templateText: {
     color: palette.textSoft,
     fontSize: 12,
-    lineHeight: 17,
-  },
-  tableEmptyRow: {
-    padding: 16,
-  },
-  tableEmptyText: {
-    color: palette.textMuted,
-    fontSize: 13,
-  },
-  inferredBlock: {
-    marginTop: 14,
-  },
-  inferredTitle: {
-    color: palette.text,
-    fontSize: 14,
-    fontWeight: '800',
-    marginBottom: 10,
-  },
-  inferredEmpty: {
-    color: palette.textMuted,
-    fontSize: 13,
     lineHeight: 18,
+    fontFamily: Platform.select({
+      ios: 'Menlo',
+      android: 'monospace',
+      web: 'monospace',
+      default: 'monospace',
+    }),
   },
-  tagWrap: {
+
+  chipsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
   },
-  tag: {
-    backgroundColor: 'rgba(59,130,246,0.12)',
+  chip: {
+    backgroundColor: palette.greenSoft,
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  tagText: {
-    color: palette.primarySoft,
+  chipText: {
+    color: palette.primary2,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '800',
   },
-  templateCard: {
-    backgroundColor: palette.card2,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: 14,
-    marginBottom: 12,
+
+  errorCard: {
+    borderColor: '#FFD3D3',
+    backgroundColor: palette.redSoft,
   },
-  templateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  errorTitle: {
+    color: palette.danger,
+    fontSize: 16,
+    fontWeight: '900',
     marginBottom: 10,
   },
-  templateText: {
-    color: palette.textSoft,
-    fontSize: 14,
-    marginLeft: 10,
-  },
-  helperText: {
-    color: palette.textMuted,
+  errorLine: {
+    color: '#991B1B',
     fontSize: 13,
-    lineHeight: 19,
-  },
-  emptyCard: {
-    backgroundColor: palette.card2,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: palette.border,
-    padding: 22,
-    alignItems: 'center',
-  },
-  emptyTitle: {
-    color: palette.text,
-    fontSize: 15,
-    fontWeight: '800',
-    marginTop: 10,
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-  emptySubtitle: {
-    color: palette.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
-    textAlign: 'center',
-  },
-  messageCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-  },
-  messageSuccess: {
-    backgroundColor: 'rgba(6,78,59,0.22)',
-    borderColor: 'rgba(16,185,129,0.35)',
-  },
-  messageError: {
-    backgroundColor: 'rgba(127,29,29,0.22)',
-    borderColor: 'rgba(239,68,68,0.35)',
-  },
-  messageText: {
-    flex: 1,
-    fontSize: 13,
-    lineHeight: 18,
+    lineHeight: 20,
+    marginBottom: 4,
     fontWeight: '600',
   },
-  bottomActions: {
+
+  previewList: {
     gap: 12,
-    marginTop: 4,
   },
-  secondaryAction: {
-    minHeight: 52,
-    borderRadius: 16,
-    backgroundColor: palette.card,
+  previewCard: {
+    borderRadius: 18,
+    padding: 14,
+    backgroundColor: palette.cardSoft,
     borderWidth: 1,
     borderColor: palette.border,
+  },
+  previewTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  previewIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: palette.greenSoft,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 12,
+  },
+  previewName: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  previewMeta: {
+    color: palette.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  previewStats: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
   },
-  secondaryActionText: {
-    color: palette.textSoft,
-    fontSize: 15,
+  previewStat: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minWidth: 70,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  previewStatValue: {
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  previewStatLabel: {
+    color: palette.textMuted,
+    fontSize: 11,
     fontWeight: '700',
-    marginLeft: 8,
   },
-  primaryAction: {
+
+  uploadButton: {
     minHeight: 56,
     borderRadius: 16,
-    backgroundColor: palette.primary,
+    backgroundColor: palette.primary2,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
+    gap: 8,
   },
-  primaryActionDisabled: {
-    opacity: 0.55,
+  uploadButtonDisabled: {
+    opacity: 0.5,
   },
-  primaryActionText: {
-    color: '#FFFFFF',
+  uploadButtonText: {
+    color: '#fff',
     fontSize: 15,
-    fontWeight: '800',
-    marginLeft: 8,
-  },
-  footerSpace: {
-    height: Platform.OS === 'ios' ? 36 : 24,
+    fontWeight: '900',
   },
 });
