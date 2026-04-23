@@ -35,7 +35,8 @@ type SidebarRoute =
   | 'supplier-performance'
   | 'waste-expiry'
   | 'ai-pricing-lab'
-  | 'pricing-history';
+  | 'pricing-history'
+  | 'tutorial';
 
 type Props = {
   visible: boolean;
@@ -231,6 +232,12 @@ export default function AppSidebar({ visible, onClose, active }: Props) {
             active={active === 'waste-expiry'}
             onPress={() => go('/(tabs)/waste-expiry')}
           />
+          <SidebarItem
+  icon="school-outline"
+  label="Tutorial"
+  active={active === 'tutorial'}
+  onPress={() => go('/(tabs)/tutorial')}
+/>
 
           <TouchableOpacity
             style={styles.logoutButton}
