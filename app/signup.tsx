@@ -14,7 +14,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '../lib/supabase';
+import { router } from 'expo-router';
 
 const palette = {
   bg: '#0B1016',
@@ -134,6 +135,10 @@ export default function SignupScreen() {
     cleanPassword === cleanConfirmPassword;
 
   const handleSignup = async () => {
+    setTimeout(() => {
+  router.replace('/login');
+}, 1200);
+
     setTouched({
       fullName: true,
       company: true,

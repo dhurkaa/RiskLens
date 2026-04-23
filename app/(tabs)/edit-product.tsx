@@ -18,27 +18,33 @@ import * as Haptics from 'expo-haptics';
 import { supabase } from '../../lib/supabase';
 
 const palette = {
-  bg: '#F4FAF7',
-  bg2: '#ECFDF3',
-  bg3: '#E6FFF1',
-  card: '#FFFFFF',
-  cardSoft: '#F8FFFB',
-  border: '#D9F7E5',
-  borderStrong: '#B7ECCC',
-  text: '#0F172A',
-  textSoft: '#334155',
-  textMuted: '#64748B',
-  primary: '#22C55E',
-  primary2: '#16A34A',
-  success: '#10B981',
-  warning: '#F59E0B',
-  danger: '#EF4444',
-  info: '#3B82F6',
+  bg: '#F5F7F3',
+  surface: '#FFFFFF',
+  surfaceSoft: '#EEF3EC',
+  surfaceSoft2: '#E6EEE5',
+  border: '#D7E1D3',
+  borderStrong: '#C7D4C3',
+
+  text: '#132118',
+  textSoft: '#425345',
+  textMuted: '#728173',
+
+  primary: '#183C2A',
+  primary2: '#24583D',
+  primary3: '#2F7A51',
+  accent: '#6FD08C',
+
+  danger: '#D94F4F',
+  warning: '#C98A1F',
+  success: '#2D8A57',
+  info: '#4475D9',
   purple: '#8B5CF6',
-  greenSoft: '#ECFDF3',
-  blueSoft: '#EEF6FF',
-  redSoft: '#FFF0F0',
-  yellowSoft: '#FFF8DB',
+
+  redSoft: '#FFF1F1',
+  yellowSoft: '#FFF8E8',
+  greenSoft: '#EDF8F0',
+  blueSoft: '#EDF3FF',
+  purpleSoft: '#F3EEFF',
 };
 
 type ProductRow = {
@@ -152,6 +158,51 @@ function StatusChip({
   );
 }
 
+function SectionHeader({
+  eyebrow,
+  title,
+  subtitle,
+}: {
+  eyebrow?: string;
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <View style={styles.sectionHeader}>
+      {!!eyebrow && <Text style={styles.sectionEyebrow}>{eyebrow}</Text>}
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {!!subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}
+    </View>
+  );
+}
+
+function MetricCard({
+  title,
+  value,
+  subtitle,
+  tone = 'green',
+}: {
+  title: string;
+  value: string;
+  subtitle: string;
+  tone?: 'green' | 'yellow' | 'red' | 'blue';
+}) {
+  const bgMap = {
+    green: palette.greenSoft,
+    yellow: palette.yellowSoft,
+    red: palette.redSoft,
+    blue: palette.blueSoft,
+  } as const;
+
+  return (
+    <View style={[styles.metricCard, { backgroundColor: bgMap[tone] }]}>
+      <Text style={styles.metricValue}>{value}</Text>
+      <Text style={styles.metricTitle}>{title}</Text>
+      <Text style={styles.metricSubtitle}>{subtitle}</Text>
+    </View>
+  );
+}
+
 export default function EditProductScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const productId = typeof params.id === 'string' ? params.id : '';
@@ -163,55 +214,58 @@ export default function EditProductScreen() {
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const loadProduct = useCallback(async (isRefresh = false) => {
-    try {
-      if (!productId) {
-        Alert.alert('Missing product ID', 'No product ID was provided.');
-        router.back();
-        return;
+  const loadProduct = useCallback(
+    async (isRefresh = false) => {
+      try {
+        if (!productId) {
+          Alert.alert('Missing product ID', 'No product ID was provided.');
+          router.back();
+          return;
+        }
+
+        if (isRefresh) setRefreshing(true);
+        else setLoading(true);
+
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+
+        if (authError) throw authError;
+        if (!user) {
+          router.replace('/login');
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('food_products')
+          .select('*')
+          .eq('id', productId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (!data) {
+          Alert.alert('Not found', 'This product does not exist anymore.');
+          router.back();
+          return;
+        }
+
+        const productData = data as ProductRow;
+        setProduct(productData);
+        setForm(buildInitialForm(productData));
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : 'Failed to load product.';
+        Alert.alert('Edit product error', message);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-
-      if (isRefresh) setRefreshing(true);
-      else setLoading(true);
-
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-
-      if (authError) throw authError;
-      if (!user) {
-        router.replace('/login');
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from('food_products')
-        .select('*')
-        .eq('id', productId)
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      if (!data) {
-        Alert.alert('Not found', 'This product does not exist anymore.');
-        router.back();
-        return;
-      }
-
-      const productData = data as ProductRow;
-      setProduct(productData);
-      setForm(buildInitialForm(productData));
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to load product.';
-      Alert.alert('Edit product error', message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [productId]);
+    },
+    [productId]
+  );
 
   useEffect(() => {
     loadProduct();
@@ -300,18 +354,18 @@ export default function EditProductScreen() {
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
       Alert.alert('Saved', `${payload.name} was updated successfully.`, [
-  {
-    text: 'Open details',
-    onPress: () => {
-      if (!product) return;
-      router.replace(`/product-details?id=${product.id}`);
-    },
-  },
-  {
-    text: 'Stay here',
-    style: 'cancel',
-  },
-]);
+        {
+          text: 'Open details',
+          onPress: () => {
+            if (!product) return;
+            router.replace(`/product-details?id=${product.id}`);
+          },
+        },
+        {
+          text: 'Stay here',
+          style: 'cancel',
+        },
+      ]);
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : 'Failed to save product.';
@@ -334,215 +388,243 @@ export default function EditProductScreen() {
   if (loading || !form) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <LinearGradient colors={[palette.bg, palette.bg2, palette.bg3]} style={styles.loadingContainer}>
+        <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={palette.primary2} />
           <Text style={styles.loadingText}>Loading edit form...</Text>
-        </LinearGradient>
+        </View>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <LinearGradient colors={[palette.bg, palette.bg2, palette.bg3]} style={styles.container}>
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={palette.primary2}
-            />
-          }
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={palette.primary2}
+          />
+        }
+      >
+        <LinearGradient
+          colors={['#163728', '#1C4630', '#24583D']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.hero}
         >
-          <LinearGradient
-            colors={['#E7FFF1', '#D9FCE7', '#F6FFF9']}
-            style={styles.heroCard}
+          <View style={styles.heroTopRow}>
+            <TouchableOpacity style={styles.heroButton} onPress={() => router.back()}>
+              <Ionicons name="arrow-back-outline" size={20} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.heroButton}
+              onPress={() => {
+                if (!product) return;
+                router.replace(`/product-details?id=${product.id}`);
+              }}
+            >
+              <Ionicons name="eye-outline" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.heroRow}>
+            <View style={styles.heroIconWrap}>
+              <MaterialCommunityIcons name="square-edit-outline" size={24} color="#fff" />
+            </View>
+
+            <View style={{ flex: 1 }}>
+              <Text style={styles.heroEyebrow}>Product editor</Text>
+              <Text style={styles.heroTitle}>Edit Product</Text>
+              <Text style={styles.heroSubtitle}>
+                Update stock, pricing, supplier, category, expiry and product status.
+              </Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        <SectionHeader
+          eyebrow="Live preview"
+          title="Current edit state"
+          subtitle="These values update as you change the form."
+        />
+
+        <View style={styles.previewGrid}>
+          <MetricCard
+            title="Stock"
+            value={`${derived.stock}`}
+            subtitle="Units available"
+            tone="green"
+          />
+          <MetricCard
+            title="Min stock"
+            value={`${derived.minStock}`}
+            subtitle="Safety level"
+            tone="yellow"
+          />
+          <MetricCard
+            title="Margin"
+            value={`${derived.margin.toFixed(0)}%`}
+            subtitle="Estimated gross margin"
+            tone="blue"
+          />
+          <MetricCard
+            title="Selling"
+            value={`€${derived.selling.toFixed(2)}`}
+            subtitle="Current sale price"
+            tone="red"
+          />
+        </View>
+
+        <SectionHeader
+          eyebrow="Basics"
+          title="Basic information"
+          subtitle="Core product identity and supplier reference."
+        />
+
+        <View style={styles.sectionCard}>
+          <Field
+            label="Product name"
+            value={form.name}
+            onChangeText={(value) => setField('name', value)}
+            placeholder="Fresh Milk 1L"
+          />
+
+          <Field
+            label="Category"
+            value={form.category}
+            onChangeText={(value) => setField('category', value)}
+            placeholder="Dairy"
+          />
+
+          <Field
+            label="Supplier"
+            value={form.supplier_name}
+            onChangeText={(value) => setField('supplier_name', value)}
+            placeholder="Kos Dairy"
+          />
+
+          <Field
+            label="SKU"
+            value={form.sku}
+            onChangeText={(value) => setField('sku', value)}
+            placeholder="DAIRY-001"
+          />
+
+          <Field
+            label="Barcode"
+            value={form.barcode}
+            onChangeText={(value) => setField('barcode', value)}
+            placeholder="100000000001"
+          />
+        </View>
+
+        <SectionHeader
+          eyebrow="Inventory"
+          title="Inventory and pricing"
+          subtitle="Operational quantities, pricing and expiry timing."
+        />
+
+        <View style={styles.sectionCard}>
+          <Field
+            label="Stock quantity"
+            value={form.stock_quantity}
+            onChangeText={(value) => setField('stock_quantity', value)}
+            placeholder="18"
+            keyboardType="numeric"
+          />
+
+          <Field
+            label="Minimum stock level"
+            value={form.min_stock_level}
+            onChangeText={(value) => setField('min_stock_level', value)}
+            placeholder="10"
+            keyboardType="numeric"
+          />
+
+          <Field
+            label="Selling price"
+            value={form.selling_price}
+            onChangeText={(value) => setField('selling_price', value)}
+            placeholder="1.59"
+            keyboardType="numeric"
+          />
+
+          <Field
+            label="Cost price"
+            value={form.cost_price}
+            onChangeText={(value) => setField('cost_price', value)}
+            placeholder="1.05"
+            keyboardType="numeric"
+          />
+
+          <Field
+            label="Expiry date"
+            value={form.expiry_date}
+            onChangeText={(value) => setField('expiry_date', value)}
+            placeholder="2026-04-22"
+          />
+        </View>
+
+        <SectionHeader
+          eyebrow="Status"
+          title="Lifecycle state"
+          subtitle="Choose how this product should behave in your system."
+        />
+
+        <View style={styles.sectionCard}>
+          <View style={styles.statusRow}>
+            <StatusChip
+              label="active"
+              active={form.status === 'active'}
+              onPress={() => setField('status', 'active')}
+            />
+            <StatusChip
+              label="inactive"
+              active={form.status === 'inactive'}
+              onPress={() => setField('status', 'inactive')}
+            />
+            <StatusChip
+              label="archived"
+              active={form.status === 'archived'}
+              onPress={() => setField('status', 'archived')}
+            />
+          </View>
+        </View>
+
+        <View style={styles.actionsWrap}>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={resetForm}
+            activeOpacity={0.9}
           >
-            <View style={styles.heroTopRow}>
-              <TouchableOpacity style={styles.headerButton} onPress={() => router.back()}>
-                <Ionicons name="arrow-back-outline" size={20} color={palette.primary2} />
-              </TouchableOpacity>
+            <Ionicons name="refresh-outline" size={18} color={palette.info} />
+            <Text style={styles.secondaryButtonText}>Reset changes</Text>
+          </TouchableOpacity>
 
-              <TouchableOpacity
-  style={styles.headerButton}
-  onPress={() => {
-    if (!product) return;
-    router.replace(`/product-details?id=${product.id}`);
-  }}
->
-  <Ionicons name="eye-outline" size={20} color={palette.info} />
-</TouchableOpacity>
-            </View>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={saveProduct}
+            activeOpacity={0.9}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="save-outline" size={18} color="#fff" />
+                <Text style={styles.primaryButtonText}>Save product</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
 
-            <View style={styles.heroRow}>
-              <View style={styles.heroIconWrap}>
-                <MaterialCommunityIcons name="square-edit-outline" size={24} color={palette.primary2} />
-              </View>
-
-              <View style={{ flex: 1 }}>
-                <Text style={styles.heroTitle}>Edit Product</Text>
-                <Text style={styles.heroSubtitle}>
-                  Update stock, prices, supplier, category, expiry, and product status.
-                </Text>
-              </View>
-            </View>
-          </LinearGradient>
-
-          <View style={styles.previewGrid}>
-            <View style={styles.previewCard}>
-              <Text style={styles.previewValue}>{derived.stock}</Text>
-              <Text style={styles.previewLabel}>Stock</Text>
-            </View>
-            <View style={styles.previewCard}>
-              <Text style={styles.previewValue}>{derived.minStock}</Text>
-              <Text style={styles.previewLabel}>Min stock</Text>
-            </View>
-            <View style={styles.previewCard}>
-              <Text style={styles.previewValue}>{derived.margin.toFixed(0)}%</Text>
-              <Text style={styles.previewLabel}>Margin</Text>
-            </View>
-            <View style={styles.previewCard}>
-              <Text style={styles.previewValue}>€{derived.selling.toFixed(2)}</Text>
-              <Text style={styles.previewLabel}>Selling</Text>
-            </View>
-          </View>
-
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Basic information</Text>
-
-            <Field
-              label="Product name"
-              value={form.name}
-              onChangeText={(value) => setField('name', value)}
-              placeholder="Fresh Milk 1L"
-            />
-
-            <Field
-              label="Category"
-              value={form.category}
-              onChangeText={(value) => setField('category', value)}
-              placeholder="Dairy"
-            />
-
-            <Field
-              label="Supplier"
-              value={form.supplier_name}
-              onChangeText={(value) => setField('supplier_name', value)}
-              placeholder="Kos Dairy"
-            />
-
-            <Field
-              label="SKU"
-              value={form.sku}
-              onChangeText={(value) => setField('sku', value)}
-              placeholder="DAIRY-001"
-            />
-
-            <Field
-              label="Barcode"
-              value={form.barcode}
-              onChangeText={(value) => setField('barcode', value)}
-              placeholder="100000000001"
-            />
-          </View>
-
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Inventory and pricing</Text>
-
-            <Field
-              label="Stock quantity"
-              value={form.stock_quantity}
-              onChangeText={(value) => setField('stock_quantity', value)}
-              placeholder="18"
-              keyboardType="numeric"
-            />
-
-            <Field
-              label="Minimum stock level"
-              value={form.min_stock_level}
-              onChangeText={(value) => setField('min_stock_level', value)}
-              placeholder="10"
-              keyboardType="numeric"
-            />
-
-            <Field
-              label="Selling price"
-              value={form.selling_price}
-              onChangeText={(value) => setField('selling_price', value)}
-              placeholder="1.59"
-              keyboardType="numeric"
-            />
-
-            <Field
-              label="Cost price"
-              value={form.cost_price}
-              onChangeText={(value) => setField('cost_price', value)}
-              placeholder="1.05"
-              keyboardType="numeric"
-            />
-
-            <Field
-              label="Expiry date"
-              value={form.expiry_date}
-              onChangeText={(value) => setField('expiry_date', value)}
-              placeholder="2026-04-22"
-            />
-          </View>
-
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Status</Text>
-
-            <View style={styles.statusRow}>
-              <StatusChip
-                label="active"
-                active={form.status === 'active'}
-                onPress={() => setField('status', 'active')}
-              />
-              <StatusChip
-                label="inactive"
-                active={form.status === 'inactive'}
-                onPress={() => setField('status', 'inactive')}
-              />
-              <StatusChip
-                label="archived"
-                active={form.status === 'archived'}
-                onPress={() => setField('status', 'archived')}
-              />
-            </View>
-          </View>
-
-          <View style={styles.actionsWrap}>
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={resetForm}
-              activeOpacity={0.9}
-            >
-              <Ionicons name="refresh-outline" size={18} color={palette.info} />
-              <Text style={styles.secondaryButtonText}>Reset changes</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={saveProduct}
-              activeOpacity={0.9}
-              disabled={saving}
-            >
-              {saving ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="save-outline" size={18} color="#fff" />
-                  <Text style={styles.primaryButtonText}>Save product</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          <View style={{ height: 28 }} />
-        </ScrollView>
-      </LinearGradient>
+        <View style={{ height: 28 }} />
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -554,11 +636,14 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
+    backgroundColor: palette.bg,
   },
-  loadingContainer: {
+
+  loadingWrap: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: palette.bg,
     paddingHorizontal: 24,
   },
   loadingText: {
@@ -567,33 +652,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+
   scrollContent: {
     paddingHorizontal: 18,
-    paddingTop: 16,
+    paddingTop: 14,
     paddingBottom: 24,
   },
 
-  heroCard: {
-    borderRadius: 28,
+  hero: {
+    borderRadius: 30,
     padding: 20,
-    borderWidth: 1,
-    borderColor: palette.borderStrong,
-    marginBottom: 18,
+    marginBottom: 20,
   },
   heroTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  headerButton: {
+  heroButton: {
     width: 42,
     height: 42,
     borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFFCC',
-    borderWidth: 1,
-    borderColor: palette.borderStrong,
   },
   heroRow: {
     flexDirection: 'row',
@@ -604,23 +686,56 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
-    borderWidth: 1,
-    borderColor: palette.borderStrong,
+  },
+  heroEyebrow: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 3,
   },
   heroTitle: {
-    color: palette.text,
+    color: '#fff',
     fontSize: 26,
     fontWeight: '900',
     marginBottom: 6,
+    letterSpacing: -0.5,
   },
   heroSubtitle: {
-    color: palette.textMuted,
+    color: 'rgba(255,255,255,0.84)',
     fontSize: 13,
     lineHeight: 20,
+    fontWeight: '500',
+  },
+
+  sectionHeader: {
+    marginTop: 2,
+    marginBottom: 12,
+  },
+  sectionEyebrow: {
+    color: palette.primary2,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  sectionTitle: {
+    color: palette.text,
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  sectionSubtitle: {
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 5,
     fontWeight: '500',
   },
 
@@ -628,42 +743,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
-    marginBottom: 16,
+    marginBottom: 18,
   },
-  previewCard: {
+  metricCard: {
     width: '48.2%',
-    backgroundColor: palette.card,
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 16,
-    borderWidth: 1,
-    borderColor: palette.border,
-    alignItems: 'center',
   },
-  previewValue: {
+  metricValue: {
     color: palette.text,
     fontSize: 24,
     fontWeight: '900',
     marginBottom: 6,
+    letterSpacing: -0.5,
   },
-  previewLabel: {
-    color: palette.textMuted,
-    fontSize: 12,
+  metricTitle: {
+    color: palette.textSoft,
+    fontSize: 13,
     fontWeight: '800',
+  },
+  metricSubtitle: {
+    color: palette.textMuted,
+    fontSize: 11,
+    marginTop: 6,
+    lineHeight: 16,
+    fontWeight: '500',
   },
 
   sectionCard: {
-    backgroundColor: palette.card,
-    borderRadius: 22,
-    padding: 18,
+    backgroundColor: palette.surface,
+    borderRadius: 24,
+    padding: 16,
     borderWidth: 1,
     borderColor: palette.border,
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    color: palette.text,
-    fontSize: 18,
-    fontWeight: '900',
-    marginBottom: 14,
+    marginBottom: 18,
   },
 
   fieldWrap: {
@@ -678,7 +791,7 @@ const styles = StyleSheet.create({
   input: {
     minHeight: 50,
     borderRadius: 16,
-    backgroundColor: palette.cardSoft,
+    backgroundColor: palette.surfaceSoft,
     borderWidth: 1,
     borderColor: palette.border,
     paddingHorizontal: 14,
@@ -692,7 +805,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   statusChip: {
-    backgroundColor: palette.cardSoft,
+    backgroundColor: palette.surfaceSoft,
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: 999,

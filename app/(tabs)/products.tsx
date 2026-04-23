@@ -16,29 +16,36 @@ import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../../lib/supabase';
+import AppSidebar from '../../components/appsidebar';
 
 const palette = {
-  bg: '#F4FAF7',
-  bg2: '#ECFDF3',
-  bg3: '#E6FFF1',
-  card: '#FFFFFF',
-  cardSoft: '#F8FFFB',
-  border: '#D9F7E5',
-  borderStrong: '#B7ECCC',
-  text: '#0F172A',
-  textSoft: '#334155',
-  textMuted: '#64748B',
-  primary: '#22C55E',
-  primary2: '#16A34A',
-  success: '#10B981',
-  warning: '#F59E0B',
-  danger: '#EF4444',
-  info: '#3B82F6',
+  bg: '#F5F7F3',
+  surface: '#FFFFFF',
+  surfaceSoft: '#EEF3EC',
+  surfaceSoft2: '#E6EEE5',
+  border: '#D7E1D3',
+  borderStrong: '#C7D4C3',
+
+  text: '#132118',
+  textSoft: '#425345',
+  textMuted: '#728173',
+
+  primary: '#183C2A',
+  primary2: '#24583D',
+  primary3: '#2F7A51',
+  accent: '#6FD08C',
+
+  danger: '#D94F4F',
+  warning: '#C98A1F',
+  success: '#2D8A57',
+  info: '#4475D9',
   purple: '#8B5CF6',
-  greenSoft: '#ECFDF3',
-  blueSoft: '#EEF6FF',
-  redSoft: '#FFF0F0',
-  yellowSoft: '#FFF8DB',
+
+  redSoft: '#FFF1F1',
+  yellowSoft: '#FFF8E8',
+  greenSoft: '#EDF8F0',
+  blueSoft: '#EDF3FF',
+  purpleSoft: '#F3EEFF',
 };
 
 type ProductRow = {
@@ -72,6 +79,13 @@ function formatCurrency(value?: number | null) {
   return `€${safeNumber(value).toFixed(2)}`;
 }
 
+function formatCompactCurrency(value?: number | null) {
+  const n = safeNumber(value);
+  if (n >= 1000000) return `€${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `€${(n / 1000).toFixed(1)}k`;
+  return `€${n.toFixed(0)}`;
+}
+
 function marginPercent(selling?: number | null, cost?: number | null) {
   const s = safeNumber(selling);
   const c = safeNumber(cost);
@@ -83,6 +97,7 @@ function daysUntil(dateString?: string | null) {
   if (!dateString) return null;
   const today = new Date();
   const target = new Date(dateString);
+  if (Number.isNaN(target.getTime())) return null;
   today.setHours(0, 0, 0, 0);
   target.setHours(0, 0, 0, 0);
   const diff = target.getTime() - today.getTime();
@@ -145,7 +160,7 @@ function statusPill(item: ProductRow) {
     return { label: 'Low stock', color: palette.warning, bg: palette.yellowSoft };
   }
   if (margin < 10) {
-    return { label: 'Weak margin', color: palette.purple, bg: '#F5F3FF' };
+    return { label: 'Weak margin', color: palette.purple, bg: palette.purpleSoft };
   }
 
   return { label: 'Healthy', color: palette.success, bg: palette.greenSoft };
@@ -162,18 +177,12 @@ function FilterChip({
 }) {
   return (
     <TouchableOpacity
-      style={[
-        styles.filterChip,
-        active ? styles.filterChipActive : undefined,
-      ]}
+      style={[styles.filterChip, active ? styles.filterChipActive : undefined]}
       onPress={onPress}
       activeOpacity={0.9}
     >
       <Text
-        style={[
-          styles.filterChipText,
-          active ? styles.filterChipTextActive : undefined,
-        ]}
+        style={[styles.filterChipText, active ? styles.filterChipTextActive : undefined]}
       >
         {label}
       </Text>
@@ -199,7 +208,7 @@ function SummaryCard({
     yellow: palette.yellowSoft,
     red: palette.redSoft,
     blue: palette.blueSoft,
-    purple: '#F5F3FF',
+    purple: palette.purpleSoft,
   } as const;
 
   const colorMap = {
@@ -218,6 +227,24 @@ function SummaryCard({
       <Text style={styles.summaryValue}>{value}</Text>
       <Text style={styles.summaryTitle}>{title}</Text>
       <Text style={styles.summarySubtitle}>{subtitle}</Text>
+    </View>
+  );
+}
+
+function SectionHeader({
+  eyebrow,
+  title,
+  subtitle,
+}: {
+  eyebrow?: string;
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <View style={styles.sectionHeader}>
+      {!!eyebrow && <Text style={styles.sectionEyebrow}>{eyebrow}</Text>}
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {!!subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}
     </View>
   );
 }
@@ -260,7 +287,12 @@ function ProductCard({
         <View style={styles.productActions}>
           <TouchableOpacity
             style={styles.iconButton}
-            onPress={() => router.push(`/product-details?id=${item.id}`)}
+            onPress={() =>
+              router.push({
+                pathname: '/product-details',
+                params: { id: item.id },
+              })
+            }
           >
             <Feather name="eye" size={18} color={palette.info} />
           </TouchableOpacity>
@@ -335,6 +367,7 @@ function ProductCard({
 export default function ProductsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [search, setSearch] = useState('');
   const [selectedFilter, setSelectedFilter] = useState<FilterType>('all');
@@ -516,18 +549,19 @@ export default function ProductsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <LinearGradient colors={[palette.bg, palette.bg2, palette.bg3]} style={styles.loadingContainer}>
+        <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={palette.primary2} />
           <Text style={styles.loadingText}>Loading products...</Text>
-        </LinearGradient>
+        </View>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <LinearGradient colors={[palette.bg, palette.bg2, palette.bg3]} style={styles.container}>
+      <View style={styles.pageWrap}>
         <ScrollView
+          style={styles.container}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -539,31 +573,75 @@ export default function ProductsScreen() {
           }
         >
           <LinearGradient
-            colors={['#E7FFF1', '#D9FCE7', '#F6FFF9']}
-            style={styles.heroCard}
+            colors={['#163728', '#1C4630', '#24583D']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.hero}
           >
             <View style={styles.heroTopRow}>
-              <View style={styles.heroIconWrap}>
-                <MaterialCommunityIcons
-                  name="cart-outline"
-                  size={22}
-                  color={palette.primary2}
-                />
+              <View style={styles.heroLeft}>
+                <TouchableOpacity
+                  style={styles.heroMenuButton}
+                  onPress={() => setSidebarOpen(true)}
+                >
+                  <Ionicons name="menu-outline" size={20} color="#fff" />
+                </TouchableOpacity>
+
+                <View style={styles.heroIconWrap}>
+                  <MaterialCommunityIcons
+                    name="cart-outline"
+                    size={22}
+                    color="#fff"
+                  />
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.heroEyebrow}>Inventory</Text>
+                  <Text style={styles.heroTitle}>Products</Text>
+                </View>
               </View>
 
               <TouchableOpacity
-                style={styles.headerButton}
+                style={styles.heroAction}
                 onPress={() => router.push('/(tabs)/upload')}
               >
-                <Ionicons name="add-outline" size={20} color={palette.primary2} />
+                <Ionicons name="add-outline" size={20} color="#fff" />
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.heroTitle}>Products</Text>
             <Text style={styles.heroSubtitle}>
-              Search, filter, and monitor your food inventory with stock, expiry, margin, and risk visibility.
+              Search, filter and monitor inventory through stock, expiry, margin and product risk.
             </Text>
+
+            <View style={styles.heroInsightBand}>
+              <View style={styles.heroInsightItem}>
+                <Text style={styles.heroInsightLabel}>Inventory value</Text>
+                <Text style={styles.heroInsightValue}>
+                  {formatCompactCurrency(summary.totalInventoryValue)}
+                </Text>
+              </View>
+
+              <View style={styles.heroDivider} />
+
+              <View style={styles.heroInsightItem}>
+                <Text style={styles.heroInsightLabel}>Weak margin</Text>
+                <Text style={styles.heroInsightValue}>{summary.weakMargin}</Text>
+              </View>
+
+              <View style={styles.heroDivider} />
+
+              <View style={styles.heroInsightItem}>
+                <Text style={styles.heroInsightLabel}>High risk</Text>
+                <Text style={styles.heroInsightValue}>{summary.highRisk}</Text>
+              </View>
+            </View>
           </LinearGradient>
+
+          <SectionHeader
+            eyebrow="Overview"
+            title="Inventory health"
+            subtitle="A quick reading of stock pressure, expiry exposure and product risk."
+          />
 
           <View style={styles.summaryGrid}>
             <SummaryCard
@@ -596,15 +674,21 @@ export default function ProductsScreen() {
             />
           </View>
 
-          <View style={styles.inventoryValueCard}>
-            <Text style={styles.inventoryValueLabel}>Inventory value at cost</Text>
-            <Text style={styles.inventoryValueText}>
+          <View style={styles.valueCard}>
+            <Text style={styles.valueCardLabel}>Inventory value at cost</Text>
+            <Text style={styles.valueCardNumber}>
               {formatCurrency(summary.totalInventoryValue)}
             </Text>
-            <Text style={styles.inventoryValueSubtext}>
+            <Text style={styles.valueCardSubtext}>
               Weak margin products: {summary.weakMargin}
             </Text>
           </View>
+
+          <SectionHeader
+            eyebrow="Search"
+            title="Find products fast"
+            subtitle="Search by product name, category, supplier, SKU or barcode."
+          />
 
           <View style={styles.searchCard}>
             <View style={styles.searchInputWrap}>
@@ -624,8 +708,14 @@ export default function ProductsScreen() {
             </View>
           </View>
 
-          <View style={styles.filtersSection}>
-            <Text style={styles.sectionLabel}>Filters</Text>
+          <SectionHeader
+            eyebrow="Filters"
+            title="Refine results"
+            subtitle="Use operational filters and category views to narrow the list."
+          />
+
+          <View style={styles.filterSectionCard}>
+            <Text style={styles.filterLabel}>Operational filters</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={styles.filtersRow}>
                 <FilterChip
@@ -655,10 +745,8 @@ export default function ProductsScreen() {
                 />
               </View>
             </ScrollView>
-          </View>
 
-          <View style={styles.filtersSection}>
-            <Text style={styles.sectionLabel}>Categories</Text>
+            <Text style={[styles.filterLabel, { marginTop: 14 }]}>Categories</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={styles.filtersRow}>
                 {categories.map((category) => (
@@ -674,20 +762,26 @@ export default function ProductsScreen() {
           </View>
 
           <View style={styles.resultsHeader}>
-            <Text style={styles.resultsTitle}>Results</Text>
-            <Text style={styles.resultsCount}>
-              {filteredProducts.length} product{filteredProducts.length === 1 ? '' : 's'}
-            </Text>
+            <View>
+              <Text style={styles.resultsTitle}>Results</Text>
+              <Text style={styles.resultsSubtitle}>
+                {filteredProducts.length} product{filteredProducts.length === 1 ? '' : 's'} matched
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => router.push('/(tabs)/upload')}
+            >
+              <Ionicons name="add-outline" size={18} color="#fff" />
+              <Text style={styles.addButtonText}>Add more</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.productsList}>
             {filteredProducts.length > 0 ? (
               filteredProducts.map((item) => (
-                <ProductCard
-                  key={item.id}
-                  item={item}
-                  onDelete={handleDelete}
-                />
+                <ProductCard key={item.id} item={item} onDelete={handleDelete} />
               ))
             ) : (
               <View style={styles.emptyCard}>
@@ -704,7 +798,13 @@ export default function ProductsScreen() {
 
           <View style={{ height: 28 }} />
         </ScrollView>
-      </LinearGradient>
+
+        <AppSidebar
+          visible={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          active="products"
+        />
+      </View>
     </SafeAreaView>
   );
 }
@@ -714,13 +814,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: palette.bg,
   },
+  pageWrap: {
+    flex: 1,
+    backgroundColor: palette.bg,
+  },
   container: {
     flex: 1,
+    backgroundColor: palette.bg,
   },
-  loadingContainer: {
+  scrollContent: {
+    paddingHorizontal: 18,
+    paddingTop: 14,
+    paddingBottom: 24,
+  },
+
+  loadingWrap: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: palette.bg,
     paddingHorizontal: 24,
   },
   loadingText: {
@@ -729,56 +841,123 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  scrollContent: {
-    paddingHorizontal: 18,
-    paddingTop: 16,
-    paddingBottom: 24,
-  },
 
-  heroCard: {
-    borderRadius: 28,
+  hero: {
+    borderRadius: 30,
     padding: 20,
-    borderWidth: 1,
-    borderColor: palette.borderStrong,
-    marginBottom: 18,
+    marginBottom: 20,
   },
   heroTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  heroIconWrap: {
-    width: 50,
-    height: 50,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+  heroLeft: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: palette.borderStrong,
+    gap: 12,
+    flex: 1,
+    paddingRight: 12,
   },
-  headerButton: {
+  heroMenuButton: {
     width: 42,
     height: 42,
     borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFFCC',
-    borderWidth: 1,
-    borderColor: palette.borderStrong,
+  },
+  heroIconWrap: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroEyebrow: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 3,
   },
   heroTitle: {
-    marginTop: 18,
-    color: palette.text,
-    fontSize: 28,
-    lineHeight: 34,
+    color: '#fff',
+    fontSize: 26,
     fontWeight: '900',
+    letterSpacing: -0.5,
   },
   heroSubtitle: {
-    marginTop: 10,
-    color: palette.textMuted,
+    marginTop: 14,
+    color: 'rgba(255,255,255,0.84)',
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 21,
+    fontWeight: '500',
+  },
+  heroAction: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroInsightBand: {
+    marginTop: 18,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderRadius: 20,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  heroInsightItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  heroInsightLabel: {
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  heroInsightValue: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  heroDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    marginHorizontal: 8,
+  },
+
+  sectionHeader: {
+    marginBottom: 12,
+    marginTop: 2,
+  },
+  sectionEyebrow: {
+    color: palette.primary2,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  sectionTitle: {
+    color: palette.text,
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  sectionSubtitle: {
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 5,
     fontWeight: '500',
   },
 
@@ -790,8 +969,8 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     width: '48.2%',
-    backgroundColor: palette.card,
-    borderRadius: 20,
+    backgroundColor: palette.surface,
+    borderRadius: 22,
     padding: 16,
     borderWidth: 1,
     borderColor: palette.border,
@@ -809,6 +988,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '900',
     marginBottom: 4,
+    letterSpacing: -0.5,
   },
   summaryTitle: {
     color: palette.textSoft,
@@ -820,46 +1000,48 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 6,
     lineHeight: 16,
+    fontWeight: '500',
   },
 
-  inventoryValueCard: {
-    backgroundColor: palette.card,
-    borderRadius: 20,
+  valueCard: {
+    backgroundColor: palette.surface,
+    borderRadius: 24,
     padding: 18,
     borderWidth: 1,
     borderColor: palette.border,
-    marginBottom: 16,
+    marginBottom: 18,
   },
-  inventoryValueLabel: {
+  valueCardLabel: {
     color: palette.textMuted,
     fontSize: 12,
     fontWeight: '700',
     marginBottom: 8,
   },
-  inventoryValueText: {
+  valueCardNumber: {
     color: palette.text,
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: '900',
     marginBottom: 6,
+    letterSpacing: -0.8,
   },
-  inventoryValueSubtext: {
+  valueCardSubtext: {
     color: palette.textSoft,
     fontSize: 13,
     fontWeight: '700',
   },
 
   searchCard: {
-    backgroundColor: palette.card,
-    borderRadius: 20,
+    backgroundColor: palette.surface,
+    borderRadius: 24,
     padding: 14,
     borderWidth: 1,
     borderColor: palette.border,
-    marginBottom: 16,
+    marginBottom: 18,
   },
   searchInputWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: palette.cardSoft,
+    backgroundColor: palette.surfaceSoft,
     borderRadius: 16,
     paddingHorizontal: 14,
     minHeight: 52,
@@ -874,10 +1056,15 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
 
-  filtersSection: {
-    marginBottom: 14,
+  filterSectionCard: {
+    backgroundColor: palette.surface,
+    borderRadius: 24,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    marginBottom: 18,
   },
-  sectionLabel: {
+  filterLabel: {
     color: palette.text,
     fontSize: 15,
     fontWeight: '900',
@@ -889,7 +1076,7 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   filterChip: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: palette.surfaceSoft,
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: 999,
@@ -910,29 +1097,45 @@ const styles = StyleSheet.create({
   },
 
   resultsHeader: {
-    marginTop: 6,
+    marginTop: 4,
     marginBottom: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 12,
   },
   resultsTitle: {
     color: palette.text,
     fontSize: 18,
     fontWeight: '900',
   },
-  resultsCount: {
+  resultsSubtitle: {
     color: palette.textMuted,
     fontSize: 13,
     fontWeight: '700',
+    marginTop: 2,
+  },
+  addButton: {
+    minHeight: 42,
+    borderRadius: 14,
+    backgroundColor: palette.primary2,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  addButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
   },
 
   productsList: {
     gap: 12,
   },
   productCard: {
-    backgroundColor: palette.card,
-    borderRadius: 22,
+    backgroundColor: palette.surface,
+    borderRadius: 24,
     padding: 16,
     borderWidth: 1,
     borderColor: palette.border,
@@ -978,7 +1181,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: palette.cardSoft,
+    backgroundColor: palette.surfaceSoft,
     borderWidth: 1,
     borderColor: palette.border,
     alignItems: 'center',
@@ -1010,7 +1213,7 @@ const styles = StyleSheet.create({
   metricBox: {
     flex: 1,
     minWidth: '22%',
-    backgroundColor: palette.cardSoft,
+    backgroundColor: palette.surfaceSoft,
     borderRadius: 16,
     paddingVertical: 12,
     paddingHorizontal: 10,
@@ -1059,8 +1262,8 @@ const styles = StyleSheet.create({
   },
 
   emptyCard: {
-    backgroundColor: palette.card,
-    borderRadius: 22,
+    backgroundColor: palette.surface,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: palette.border,
     padding: 22,

@@ -3,10 +3,10 @@ import { Platform } from 'react-native';
 import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
 
-const supabaseUrl = 'https://fgpjshzqdjusywmziaoz.supabase.co';
-const supabaseAnonKey = 'sb_publishable_Wo3qJ7Wpqcg2JpwAn-yL1Q_f3ZllNF1';
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 
-// Storage për web (localStorage)
+// Storage for web
 const webStorage = {
   getItem: (key: string) => {
     if (typeof window !== 'undefined') {
@@ -28,7 +28,7 @@ const webStorage = {
   },
 };
 
-// Storage për native (SecureStore)
+// Storage for native
 const nativeStorage = {
   getItem: (key: string) => SecureStore.getItemAsync(key),
   setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),

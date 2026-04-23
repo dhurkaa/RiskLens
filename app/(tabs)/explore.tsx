@@ -15,31 +15,38 @@ import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../../lib/supabase';
+import AppSidebar from '../../components/appsidebar';
 
 const palette = {
-  bg: '#F4FAF7',
-  bg2: '#ECFDF3',
-  bg3: '#E6FFF1',
-  card: '#FFFFFF',
-  cardSoft: '#F8FFFB',
-  border: '#D9F7E5',
-  borderStrong: '#B7ECCC',
-  text: '#0F172A',
-  textSoft: '#334155',
-  textMuted: '#64748B',
-  primary: '#22C55E',
-  primary2: '#16A34A',
-  success: '#10B981',
-  warning: '#F59E0B',
-  danger: '#EF4444',
-  info: '#3B82F6',
+  bg: '#F5F7F3',
+  surface: '#FFFFFF',
+  surfaceSoft: '#EEF3EC',
+  surfaceSoft2: '#E6EEE5',
+  border: '#D7E1D3',
+  borderStrong: '#C7D4C3',
+
+  text: '#132118',
+  textSoft: '#425345',
+  textMuted: '#728173',
+
+  primary: '#183C2A',
+  primary2: '#24583D',
+  primary3: '#2F7A51',
+  accent: '#6FD08C',
+
+  danger: '#D94F4F',
+  warning: '#C98A1F',
+  success: '#2D8A57',
+  info: '#4475D9',
   purple: '#8B5CF6',
   cyan: '#06B6D4',
-  greenSoft: '#ECFDF3',
-  blueSoft: '#EEF6FF',
-  redSoft: '#FFF0F0',
-  yellowSoft: '#FFF8DB',
-  purpleSoft: '#F5F3FF',
+
+  redSoft: '#FFF1F1',
+  yellowSoft: '#FFF8E8',
+  greenSoft: '#EDF8F0',
+  blueSoft: '#EDF3FF',
+  purpleSoft: '#F3EEFF',
+  cyanSoft: '#E9FCFF',
 };
 
 type ProductRow = {
@@ -100,6 +107,7 @@ function formatCurrency(value?: number | null) {
 
 function formatCompactCurrency(value?: number | null) {
   const n = safeNumber(value);
+  if (n >= 1000000) return `€${(n / 1000000).toFixed(1)}M`;
   if (n >= 1000) return `€${(n / 1000).toFixed(1)}k`;
   return `€${n.toFixed(0)}`;
 }
@@ -115,6 +123,7 @@ function daysUntil(dateString?: string | null) {
   if (!dateString) return null;
   const today = new Date();
   const target = new Date(dateString);
+  if (Number.isNaN(target.getTime())) return null;
   today.setHours(0, 0, 0, 0);
   target.setHours(0, 0, 0, 0);
   const diff = target.getTime() - today.getTime();
@@ -154,7 +163,7 @@ function Bar({
   color: string;
 }) {
   const widthPercent: DimensionValue =
-  max > 0 ? `${(value / max) * 100}%` : '0%';
+    max > 0 ? `${(value / max) * 100}%` : '0%';
 
   return (
     <View style={styles.barTrack}>
@@ -182,7 +191,7 @@ function InsightStat({
     red: palette.redSoft,
     blue: palette.blueSoft,
     purple: palette.purpleSoft,
-    cyan: '#E9FCFF',
+    cyan: palette.cyanSoft,
   } as const;
 
   const colorMap = {
@@ -207,14 +216,17 @@ function InsightStat({
 }
 
 function SectionHeader({
+  eyebrow,
   title,
   subtitle,
 }: {
+  eyebrow?: string;
   title: string;
   subtitle: string;
 }) {
   return (
     <View style={styles.sectionHeader}>
+      {!!eyebrow && <Text style={styles.sectionEyebrow}>{eyebrow}</Text>}
       <Text style={styles.sectionTitle}>{title}</Text>
       <Text style={styles.sectionSubtitle}>{subtitle}</Text>
     </View>
@@ -224,7 +236,7 @@ function SectionHeader({
 export default function InsightsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
+const [sidebarOpen, setSidebarOpen] = useState(false);
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [recommendations, setRecommendations] = useState<RecommendationRow[]>([]);
@@ -247,7 +259,9 @@ export default function InsightsScreen() {
       const [productsRes, alertsRes, recsRes] = await Promise.all([
         supabase
           .from('food_products')
-          .select('id, name, category, stock_quantity, min_stock_level, selling_price, cost_price, expiry_date, supplier_name')
+          .select(
+            'id, name, category, stock_quantity, min_stock_level, selling_price, cost_price, expiry_date, supplier_name'
+          )
           .eq('user_id', user.id),
 
         supabase
@@ -258,7 +272,9 @@ export default function InsightsScreen() {
 
         supabase
           .from('food_recommendations')
-          .select('id, product_name, recommendation_type, message, impact_value, created_at')
+          .select(
+            'id, product_name, recommendation_type, message, impact_value, created_at'
+          )
           .eq('user_id', user.id)
           .order('created_at', { ascending: false }),
       ]);
@@ -404,15 +420,8 @@ export default function InsightsScreen() {
     };
   }, [alerts]);
 
-  const maxCategoryRisk = Math.max(
-    ...categoryInsights.map((c) => c.riskScore),
-    1
-  );
-
-  const maxSupplierRisk = Math.max(
-    ...supplierInsights.map((s) => s.highRiskCount),
-    1
-  );
+  const maxCategoryRisk = Math.max(...categoryInsights.map((c) => c.riskScore), 1);
+  const maxSupplierRisk = Math.max(...supplierInsights.map((s) => s.highRiskCount), 1);
 
   const onRefresh = async () => {
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -422,309 +431,382 @@ export default function InsightsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <LinearGradient colors={[palette.bg, palette.bg2, palette.bg3]} style={styles.loadingWrap}>
+        <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={palette.primary2} />
           <Text style={styles.loadingText}>Loading insights...</Text>
-        </LinearGradient>
+        </View>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <LinearGradient colors={[palette.bg, palette.bg2, palette.bg3]} style={styles.container}>
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={palette.primary2}
-            />
-          }
-        >
-          <LinearGradient
-            colors={['#E7FFF1', '#D9FCE7', '#F6FFF9']}
-            style={styles.heroCard}
-          >
-            <View style={styles.heroTop}>
-              <View style={styles.heroIconWrap}>
-                <MaterialCommunityIcons name="chart-line" size={24} color={palette.primary2} />
+  <View style={styles.pageWrap}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={palette.primary2}
+          />
+        }
+      >
+        <LinearGradient
+  colors={['#163728', '#1C4630', '#24583D']}
+  start={{ x: 0, y: 0 }}
+  end={{ x: 1, y: 1 }}
+  style={styles.hero}
+>
+  <View style={styles.heroTop}>
+    <View style={styles.heroTopLeft}>
+      <TouchableOpacity
+        style={styles.heroMenuButton}
+        onPress={() => setSidebarOpen(true)}
+      >
+        <Ionicons name="menu-outline" size={20} color="#fff" />
+      </TouchableOpacity>
+
+      <View style={styles.heroIconWrap}>
+        <MaterialCommunityIcons name="chart-line" size={24} color="#fff" />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.heroEyebrow}>Business intelligence</Text>
+        <Text style={styles.heroTitle}>Insights</Text>
+      </View>
+    </View>
+
+    <TouchableOpacity
+      style={styles.heroButton}
+      onPress={() => router.push('/(tabs)/products')}
+    >
+      <Feather name="box" size={18} color="#fff" />
+    </TouchableOpacity>
+  </View>
+
+  <Text style={styles.heroSubtitle}>
+    Advanced food business analysis for expiry pressure, stock imbalance,
+    supplier risk, weak margins and recommendation impact.
+  </Text>
+
+  <View style={styles.heroInsightBand}>
+    <View style={styles.heroInsightItem}>
+      <Text style={styles.heroInsightLabel}>Waste exposure</Text>
+      <Text style={styles.heroInsightValue}>
+        {formatCompactCurrency(overview.estimatedWasteExposure)}
+      </Text>
+    </View>
+
+    <View style={styles.heroDivider} />
+
+    <View style={styles.heroInsightItem}>
+      <Text style={styles.heroInsightLabel}>Recommendation impact</Text>
+      <Text style={styles.heroInsightValue}>
+        {formatCompactCurrency(overview.recommendationImpact)}
+      </Text>
+    </View>
+
+    <View style={styles.heroDivider} />
+
+    <View style={styles.heroInsightItem}>
+      <Text style={styles.heroInsightLabel}>Alerts</Text>
+      <Text style={styles.heroInsightValue}>{overview.totalAlerts}</Text>
+    </View>
+  </View>
+</LinearGradient>
+
+        <SectionHeader
+          eyebrow="Overview"
+          title="Operational picture"
+          subtitle="A single-screen summary of the most important intelligence signals."
+        />
+
+        <View style={styles.statsGrid}>
+          <InsightStat
+            title="Products"
+            value={`${overview.totalProducts}`}
+            subtitle="Tracked inventory items"
+            icon="basket-outline"
+            tone="green"
+          />
+          <InsightStat
+            title="High risk"
+            value={`${overview.highRiskProducts}`}
+            subtitle="Require immediate action"
+            icon="warning-outline"
+            tone="red"
+          />
+          <InsightStat
+            title="Near expiry"
+            value={`${overview.nearExpiryProducts}`}
+            subtitle="Within 7 days"
+            icon="time-outline"
+            tone="yellow"
+          />
+          <InsightStat
+            title="Weak margin"
+            value={`${overview.weakMarginProducts}`}
+            subtitle="Below healthy threshold"
+            icon="cash-outline"
+            tone="blue"
+          />
+          <InsightStat
+            title="Waste exposure"
+            value={formatCompactCurrency(overview.estimatedWasteExposure)}
+            subtitle="At cost basis"
+            icon="trash-outline"
+            tone="purple"
+          />
+          <InsightStat
+            title="Recommendation impact"
+            value={formatCompactCurrency(overview.recommendationImpact)}
+            subtitle="Estimated opportunity"
+            icon="sparkles-outline"
+            tone="cyan"
+          />
+        </View>
+
+        <SectionHeader
+          eyebrow="Categories"
+          title="Category pressure"
+          subtitle="Which product groups are carrying the most operational risk."
+        />
+
+        <View style={styles.cardBlock}>
+          {categoryInsights.length > 0 ? (
+            categoryInsights.slice(0, 8).map((category) => (
+              <View key={category.category} style={styles.insightRowCard}>
+                <View style={styles.insightRowTop}>
+                  <Text style={styles.insightRowTitle}>{category.category}</Text>
+                  <Text style={styles.insightRowValue}>
+                    Risk {category.riskScore.toFixed(0)}%
+                  </Text>
+                </View>
+
+                <Bar
+                  value={category.riskScore}
+                  max={maxCategoryRisk}
+                  color={palette.warning}
+                />
+
+                <View style={styles.metricRow}>
+                  <Text style={styles.metricText}>{category.productCount} products</Text>
+                  <Text style={styles.metricText}>{category.nearExpiry} expiring</Text>
+                  <Text style={styles.metricText}>{category.lowStock} low stock</Text>
+                  <Text style={styles.metricText}>{category.avgMargin.toFixed(0)}% margin</Text>
+                </View>
               </View>
-
-              <TouchableOpacity
-                style={styles.heroButton}
-                onPress={() => router.push('/(tabs)/products')}
-              >
-                <Feather name="box" size={18} color={palette.primary2} />
-              </TouchableOpacity>
+            ))
+          ) : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>No category insights yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Upload product data to unlock category analytics.
+              </Text>
             </View>
+          )}
+        </View>
 
-            <Text style={styles.heroTitle}>Insights</Text>
-            <Text style={styles.heroSubtitle}>
-              Advanced food business analysis for expiry risk, stock pressure, weak margins, supplier risk, and recommendation impact.
-            </Text>
-          </LinearGradient>
+        <SectionHeader
+          eyebrow="Suppliers"
+          title="Supplier risk"
+          subtitle="Suppliers most associated with inventory pressure and high-risk products."
+        />
 
-          <View style={styles.statsGrid}>
-            <InsightStat
-              title="Products"
-              value={`${overview.totalProducts}`}
-              subtitle="Tracked inventory items"
-              icon="basket-outline"
-              tone="green"
-            />
-            <InsightStat
-              title="High risk"
-              value={`${overview.highRiskProducts}`}
-              subtitle="Require immediate action"
-              icon="warning-outline"
-              tone="red"
-            />
-            <InsightStat
-              title="Near expiry"
-              value={`${overview.nearExpiryProducts}`}
-              subtitle="Within 7 days"
-              icon="time-outline"
-              tone="yellow"
-            />
-            <InsightStat
-              title="Weak margin"
-              value={`${overview.weakMarginProducts}`}
-              subtitle="Below healthy threshold"
-              icon="cash-outline"
-              tone="blue"
-            />
-            <InsightStat
-              title="Waste exposure"
-              value={formatCompactCurrency(overview.estimatedWasteExposure)}
-              subtitle="At cost basis"
-              icon="trash-outline"
-              tone="purple"
-            />
-            <InsightStat
-              title="Recommendation impact"
-              value={formatCompactCurrency(overview.recommendationImpact)}
-              subtitle="Estimated opportunity"
-              icon="sparkles-outline"
-              tone="cyan"
-            />
+        <View style={styles.cardBlock}>
+          {supplierInsights.length > 0 ? (
+            supplierInsights.slice(0, 8).map((supplier) => (
+              <View key={supplier.supplier} style={styles.insightRowCard}>
+                <View style={styles.insightRowTop}>
+                  <Text style={styles.insightRowTitle}>{supplier.supplier}</Text>
+                  <Text style={styles.insightRowValue}>
+                    {supplier.highRiskCount} high risk
+                  </Text>
+                </View>
+
+                <Bar
+                  value={supplier.highRiskCount}
+                  max={maxSupplierRisk}
+                  color={palette.danger}
+                />
+
+                <View style={styles.metricRow}>
+                  <Text style={styles.metricText}>{supplier.productCount} products</Text>
+                  <Text style={styles.metricText}>{supplier.lowStockCount} low stock</Text>
+                  <Text style={styles.metricText}>{supplier.nearExpiryCount} expiring</Text>
+                </View>
+              </View>
+            ))
+          ) : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>No supplier insights yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Supplier intelligence will appear after uploads.
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <SectionHeader
+          eyebrow="Alerts"
+          title="Alert severity breakdown"
+          subtitle="How serious the current issue landscape is."
+        />
+
+        <View style={styles.breakdownCard}>
+          <View style={styles.breakdownItem}>
+            <View style={[styles.breakdownIcon, { backgroundColor: palette.redSoft }]}>
+              <Ionicons name="alert-circle-outline" size={18} color={palette.danger} />
+            </View>
+            <Text style={styles.breakdownValue}>{alertSeveritySummary.high}</Text>
+            <Text style={styles.breakdownLabel}>High</Text>
           </View>
 
-          <SectionHeader
-            title="Category pressure"
-            subtitle="Which categories carry the most risk"
-          />
+          <View style={styles.breakdownItem}>
+            <View style={[styles.breakdownIcon, { backgroundColor: palette.yellowSoft }]}>
+              <Ionicons name="warning-outline" size={18} color={palette.warning} />
+            </View>
+            <Text style={styles.breakdownValue}>{alertSeveritySummary.medium}</Text>
+            <Text style={styles.breakdownLabel}>Medium</Text>
+          </View>
 
-          <View style={styles.cardBlock}>
-            {categoryInsights.length > 0 ? (
-              categoryInsights.slice(0, 8).map((category) => (
-                <View key={category.category} style={styles.insightRowCard}>
-                  <View style={styles.insightRowTop}>
-                    <Text style={styles.insightRowTitle}>{category.category}</Text>
-                    <Text style={styles.insightRowValue}>
-                      Risk {category.riskScore.toFixed(0)}%
-                    </Text>
+          <View style={styles.breakdownItem}>
+            <View style={[styles.breakdownIcon, { backgroundColor: palette.blueSoft }]}>
+              <Ionicons name="information-circle-outline" size={18} color={palette.info} />
+            </View>
+            <Text style={styles.breakdownValue}>{alertSeveritySummary.low}</Text>
+            <Text style={styles.breakdownLabel}>Low</Text>
+          </View>
+        </View>
+
+        <SectionHeader
+          eyebrow="Recommendations"
+          title="Recommendation mix"
+          subtitle="What actions the system is suggesting across the business."
+        />
+
+        <View style={styles.recommendationGrid}>
+          <View style={styles.recCard}>
+            <Text style={styles.recValue}>{recommendationGroups.discount.length}</Text>
+            <Text style={styles.recTitle}>Discount</Text>
+          </View>
+          <View style={styles.recCard}>
+            <Text style={styles.recValue}>{recommendationGroups.restock.length}</Text>
+            <Text style={styles.recTitle}>Restock</Text>
+          </View>
+          <View style={styles.recCard}>
+            <Text style={styles.recValue}>{recommendationGroups.priceUp.length}</Text>
+            <Text style={styles.recTitle}>Price Up</Text>
+          </View>
+          <View style={styles.recCard}>
+            <Text style={styles.recValue}>{recommendationGroups.priceDown.length}</Text>
+            <Text style={styles.recTitle}>Price Down</Text>
+          </View>
+        </View>
+
+        <SectionHeader
+          eyebrow="Opportunities"
+          title="Top recommendation opportunities"
+          subtitle="Highest estimated impact items across generated recommendations."
+        />
+
+        <View style={styles.cardBlock}>
+          {recommendations.length > 0 ? (
+            [...recommendations]
+              .sort((a, b) => safeNumber(b.impact_value) - safeNumber(a.impact_value))
+              .slice(0, 8)
+              .map((rec) => (
+                <View key={rec.id} style={styles.opportunityCard}>
+                  <View style={styles.opportunityLeft}>
+                    <View style={styles.opportunityIconWrap}>
+                      <Ionicons name="sparkles-outline" size={18} color={palette.primary2} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.opportunityTitle}>{rec.product_name}</Text>
+                      <Text style={styles.opportunityMessage}>{rec.message}</Text>
+                    </View>
                   </View>
 
-                  <Bar
-                    value={category.riskScore}
-                    max={maxCategoryRisk}
-                    color={palette.warning}
-                  />
-
-                  <View style={styles.metricRow}>
-                    <Text style={styles.metricText}>{category.productCount} products</Text>
-                    <Text style={styles.metricText}>{category.nearExpiry} expiring</Text>
-                    <Text style={styles.metricText}>{category.lowStock} low stock</Text>
-                    <Text style={styles.metricText}>{category.avgMargin.toFixed(0)}% margin</Text>
+                  <View style={styles.opportunityRight}>
+                    <Text style={styles.opportunityValue}>
+                      {formatCompactCurrency(rec.impact_value)}
+                    </Text>
+                    <Text style={styles.opportunityType}>{rec.recommendation_type}</Text>
                   </View>
                 </View>
               ))
-            ) : (
-              <View style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>No category insights yet</Text>
-                <Text style={styles.emptySubtitle}>
-                  Upload product data to unlock category analytics.
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <SectionHeader
-            title="Supplier risk"
-            subtitle="Suppliers associated with pressure points"
-          />
-
-          <View style={styles.cardBlock}>
-            {supplierInsights.length > 0 ? (
-              supplierInsights.slice(0, 8).map((supplier) => (
-                <View key={supplier.supplier} style={styles.insightRowCard}>
-                  <View style={styles.insightRowTop}>
-                    <Text style={styles.insightRowTitle}>{supplier.supplier}</Text>
-                    <Text style={styles.insightRowValue}>
-                      {supplier.highRiskCount} high risk
-                    </Text>
-                  </View>
-
-                  <Bar
-                    value={supplier.highRiskCount}
-                    max={maxSupplierRisk}
-                    color={palette.danger}
-                  />
-
-                  <View style={styles.metricRow}>
-                    <Text style={styles.metricText}>{supplier.productCount} products</Text>
-                    <Text style={styles.metricText}>{supplier.lowStockCount} low stock</Text>
-                    <Text style={styles.metricText}>{supplier.nearExpiryCount} expiring</Text>
-                  </View>
-                </View>
-              ))
-            ) : (
-              <View style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>No supplier insights yet</Text>
-                <Text style={styles.emptySubtitle}>
-                  Supplier intelligence will appear after uploads.
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <SectionHeader
-            title="Alert severity breakdown"
-            subtitle="How serious current issues are"
-          />
-
-          <View style={styles.breakdownCard}>
-            <View style={styles.breakdownItem}>
-              <View style={[styles.breakdownIcon, { backgroundColor: palette.redSoft }]}>
-                <Ionicons name="alert-circle-outline" size={18} color={palette.danger} />
-              </View>
-              <Text style={styles.breakdownValue}>{alertSeveritySummary.high}</Text>
-              <Text style={styles.breakdownLabel}>High</Text>
+          ) : (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>No recommendation opportunities yet</Text>
+              <Text style={styles.emptySubtitle}>
+                Upload products to generate recommendation analytics.
+              </Text>
             </View>
+          )}
+        </View>
 
-            <View style={styles.breakdownItem}>
-              <View style={[styles.breakdownIcon, { backgroundColor: palette.yellowSoft }]}>
-                <Ionicons name="warning-outline" size={18} color={palette.warning} />
-              </View>
-              <Text style={styles.breakdownValue}>{alertSeveritySummary.medium}</Text>
-              <Text style={styles.breakdownLabel}>Medium</Text>
-            </View>
+        <SectionHeader
+          eyebrow="Interpretation"
+          title="Business reading"
+          subtitle="A quick narrative summary of what these insights mean."
+        />
 
-            <View style={styles.breakdownItem}>
-              <View style={[styles.breakdownIcon, { backgroundColor: palette.blueSoft }]}>
-                <Ionicons name="information-circle-outline" size={18} color={palette.info} />
-              </View>
-              <Text style={styles.breakdownValue}>{alertSeveritySummary.low}</Text>
-              <Text style={styles.breakdownLabel}>Low</Text>
-            </View>
-          </View>
+        <View style={styles.summaryNarrativeCard}>
+          <Text style={styles.summaryNarrativeText}>
+            {overview.highRiskProducts > 0
+              ? `You currently have ${overview.highRiskProducts} high-risk products. `
+              : 'You currently have no high-risk products. '}
+            {overview.nearExpiryProducts > 0
+              ? `${overview.nearExpiryProducts} items are approaching expiry, which increases waste pressure. `
+              : 'Expiry pressure is currently low. '}
+            {overview.weakMarginProducts > 0
+              ? `${overview.weakMarginProducts} items have weak margin and may need pricing review. `
+              : 'Margin health looks stable across products. '}
+            Estimated waste exposure is {formatCurrency(overview.estimatedWasteExposure)}, while recommendation impact is currently estimated at {formatCurrency(overview.recommendationImpact)}.
+          </Text>
+        </View>
 
-          <SectionHeader
-            title="Recommendation mix"
-            subtitle="What actions the system is suggesting"
-          />
+              <View style={{ height: 30 }} />
+    </ScrollView>
 
-          <View style={styles.recommendationGrid}>
-            <View style={styles.recCard}>
-              <Text style={styles.recValue}>{recommendationGroups.discount.length}</Text>
-              <Text style={styles.recTitle}>Discount</Text>
-            </View>
-            <View style={styles.recCard}>
-              <Text style={styles.recValue}>{recommendationGroups.restock.length}</Text>
-              <Text style={styles.recTitle}>Restock</Text>
-            </View>
-            <View style={styles.recCard}>
-              <Text style={styles.recValue}>{recommendationGroups.priceUp.length}</Text>
-              <Text style={styles.recTitle}>Price Up</Text>
-            </View>
-            <View style={styles.recCard}>
-              <Text style={styles.recValue}>{recommendationGroups.priceDown.length}</Text>
-              <Text style={styles.recTitle}>Price Down</Text>
-            </View>
-          </View>
-
-          <SectionHeader
-            title="Top recommendation opportunities"
-            subtitle="Highest estimated impact items"
-          />
-
-          <View style={styles.cardBlock}>
-            {recommendations.length > 0 ? (
-              [...recommendations]
-                .sort((a, b) => safeNumber(b.impact_value) - safeNumber(a.impact_value))
-                .slice(0, 8)
-                .map((rec) => (
-                  <View key={rec.id} style={styles.opportunityCard}>
-                    <View style={styles.opportunityLeft}>
-                      <View style={styles.opportunityIconWrap}>
-                        <Ionicons name="sparkles-outline" size={18} color={palette.primary2} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.opportunityTitle}>{rec.product_name}</Text>
-                        <Text style={styles.opportunityMessage}>{rec.message}</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.opportunityRight}>
-                      <Text style={styles.opportunityValue}>
-                        {formatCompactCurrency(rec.impact_value)}
-                      </Text>
-                      <Text style={styles.opportunityType}>{rec.recommendation_type}</Text>
-                    </View>
-                  </View>
-                ))
-            ) : (
-              <View style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>No recommendation opportunities yet</Text>
-                <Text style={styles.emptySubtitle}>
-                  Upload products to generate recommendation analytics.
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <SectionHeader
-            title="Business interpretation"
-            subtitle="What these insights mean"
-          />
-
-          <View style={styles.summaryNarrativeCard}>
-            <Text style={styles.summaryNarrativeText}>
-              {overview.highRiskProducts > 0
-                ? `You currently have ${overview.highRiskProducts} high-risk products. `
-                : 'You currently have no high-risk products. '}
-              {overview.nearExpiryProducts > 0
-                ? `${overview.nearExpiryProducts} items are approaching expiry, which increases waste pressure. `
-                : 'Expiry pressure is currently low. '}
-              {overview.weakMarginProducts > 0
-                ? `${overview.weakMarginProducts} items have weak margin and may need pricing review. `
-                : 'Margin health looks stable across products. '}
-              Estimated waste exposure is {formatCurrency(overview.estimatedWasteExposure)}, while recommendation impact is currently estimated at {formatCurrency(overview.recommendationImpact)}.
-            </Text>
-          </View>
-
-          <View style={{ height: 30 }} />
-        </ScrollView>
-      </LinearGradient>
-    </SafeAreaView>
+    <AppSidebar
+      visible={sidebarOpen}
+      onClose={() => setSidebarOpen(false)}
+      active="explore"
+    />
+  </View>
+</SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  pageWrap: {
+  flex: 1,
+  backgroundColor: palette.bg,
+},
+heroMenuButton: {
+  width: 42,
+  height: 42,
+  borderRadius: 14,
+  backgroundColor: 'rgba(255,255,255,0.12)',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
   safeArea: {
     flex: 1,
     backgroundColor: palette.bg,
   },
   container: {
     flex: 1,
+    backgroundColor: palette.bg,
   },
   loadingWrap: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: palette.bg,
   },
   loadingText: {
     marginTop: 14,
@@ -732,55 +814,121 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+
   scrollContent: {
     paddingHorizontal: 18,
-    paddingTop: 16,
+    paddingTop: 14,
     paddingBottom: 24,
   },
 
-  heroCard: {
-    borderRadius: 28,
+  hero: {
+    borderRadius: 30,
     padding: 20,
-    borderWidth: 1,
-    borderColor: palette.borderStrong,
-    marginBottom: 18,
+    marginBottom: 20,
   },
   heroTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  heroTopLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    paddingRight: 12,
+  },
   heroIconWrap: {
     width: 52,
     height: 52,
     borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: palette.borderStrong,
   },
   heroButton: {
     width: 42,
     height: 42,
     borderRadius: 14,
-    backgroundColor: '#FFFFFFCC',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: palette.borderStrong,
+  },
+  heroEyebrow: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 3,
   },
   heroTitle: {
-    marginTop: 18,
-    color: palette.text,
-    fontSize: 28,
+    color: '#fff',
+    fontSize: 26,
     fontWeight: '900',
-    marginBottom: 8,
+    letterSpacing: -0.5,
   },
   heroSubtitle: {
-    color: palette.textMuted,
+    marginTop: 14,
+    color: 'rgba(255,255,255,0.84)',
     fontSize: 14,
-    lineHeight: 22,
+    lineHeight: 21,
+    fontWeight: '500',
+  },
+  heroInsightBand: {
+    marginTop: 18,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    borderRadius: 20,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  heroInsightItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  heroInsightLabel: {
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  heroInsightValue: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  heroDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    marginHorizontal: 8,
+  },
+
+  sectionHeader: {
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  sectionEyebrow: {
+    color: palette.primary2,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  sectionTitle: {
+    color: palette.text,
+    fontSize: 22,
+    fontWeight: '900',
+    marginBottom: 4,
+    letterSpacing: -0.4,
+  },
+  sectionSubtitle: {
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
     fontWeight: '500',
   },
 
@@ -792,8 +940,8 @@ const styles = StyleSheet.create({
   },
   statCard: {
     width: '48.2%',
-    backgroundColor: palette.card,
-    borderRadius: 20,
+    backgroundColor: palette.surface,
+    borderRadius: 22,
     padding: 16,
     borderWidth: 1,
     borderColor: palette.border,
@@ -811,6 +959,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '900',
     marginBottom: 4,
+    letterSpacing: -0.5,
   },
   statTitle: {
     color: palette.textSoft,
@@ -822,22 +971,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 16,
     marginTop: 6,
-  },
-
-  sectionHeader: {
-    marginTop: 8,
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    color: palette.text,
-    fontSize: 19,
-    fontWeight: '900',
-    marginBottom: 4,
-  },
-  sectionSubtitle: {
-    color: palette.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
     fontWeight: '500',
   },
 
@@ -846,8 +979,8 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   insightRowCard: {
-    backgroundColor: palette.card,
-    borderRadius: 20,
+    backgroundColor: palette.surface,
+    borderRadius: 22,
     padding: 16,
     borderWidth: 1,
     borderColor: palette.border,
@@ -872,7 +1005,7 @@ const styles = StyleSheet.create({
   barTrack: {
     height: 10,
     borderRadius: 999,
-    backgroundColor: '#ECF2EE',
+    backgroundColor: palette.surfaceSoft2,
     overflow: 'hidden',
     marginBottom: 12,
   },
@@ -892,8 +1025,8 @@ const styles = StyleSheet.create({
   },
 
   breakdownCard: {
-    backgroundColor: palette.card,
-    borderRadius: 22,
+    backgroundColor: palette.surface,
+    borderRadius: 24,
     padding: 18,
     borderWidth: 1,
     borderColor: palette.border,
@@ -934,8 +1067,8 @@ const styles = StyleSheet.create({
   },
   recCard: {
     width: '48.2%',
-    backgroundColor: palette.card,
-    borderRadius: 20,
+    backgroundColor: palette.surface,
+    borderRadius: 22,
     padding: 16,
     borderWidth: 1,
     borderColor: palette.border,
@@ -946,6 +1079,7 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: '900',
     marginBottom: 6,
+    letterSpacing: -0.6,
   },
   recTitle: {
     color: palette.textMuted,
@@ -954,8 +1088,8 @@ const styles = StyleSheet.create({
   },
 
   opportunityCard: {
-    backgroundColor: palette.card,
-    borderRadius: 20,
+    backgroundColor: palette.surface,
+    borderRadius: 22,
     padding: 14,
     borderWidth: 1,
     borderColor: palette.border,
@@ -1006,8 +1140,8 @@ const styles = StyleSheet.create({
   },
 
   summaryNarrativeCard: {
-    backgroundColor: palette.card,
-    borderRadius: 22,
+    backgroundColor: palette.surface,
+    borderRadius: 24,
     padding: 18,
     borderWidth: 1,
     borderColor: palette.border,
@@ -1020,8 +1154,8 @@ const styles = StyleSheet.create({
   },
 
   emptyCard: {
-    backgroundColor: palette.card,
-    borderRadius: 22,
+    backgroundColor: palette.surface,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: palette.border,
     padding: 22,

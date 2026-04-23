@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -10,345 +9,450 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import * as DocumentPicker from 'expo-document-picker';
-import Papa from 'papaparse';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as DocumentPicker from 'expo-document-picker';
+import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import * as Haptics from 'expo-haptics';
 import { supabase } from '../../lib/supabase';
+import AppSidebar from '../../components/appsidebar';
 
 const palette = {
-  bg: '#F4FAF7',
-  bg2: '#ECFDF3',
-  bg3: '#E6FFF1',
-  card: '#FFFFFF',
-  cardSoft: '#F8FFFB',
-  border: '#D9F7E5',
-  borderStrong: '#B7ECCC',
-  text: '#0F172A',
-  textSoft: '#334155',
-  textMuted: '#64748B',
-  primary: '#22C55E',
-  primary2: '#16A34A',
-  success: '#10B981',
-  warning: '#F59E0B',
-  danger: '#EF4444',
-  info: '#3B82F6',
-  purple: '#8B5CF6',
-  greenSoft: '#ECFDF3',
-  blueSoft: '#EEF6FF',
-  redSoft: '#FFF0F0',
-  yellowSoft: '#FFF8DB',
-};
+  bg: '#F5F7F3',
+  surface: '#FFFFFF',
+  surfaceSoft: '#EEF3EC',
+  surfaceSoft2: '#E6EEE5',
+  border: '#D7E1D3',
+  borderStrong: '#C7D4C3',
 
-type CsvProductRow = {
-  name: string;
-  category?: string;
-  sku?: string;
-  barcode?: string;
-  stock_quantity?: string | number;
-  min_stock_level?: string | number;
-  selling_price?: string | number;
-  cost_price?: string | number;
-  expiry_date?: string;
-  supplier_name?: string;
-};
+  text: '#132118',
+  textSoft: '#425345',
+  textMuted: '#728173',
 
-type ParsedRow = {
-  name: string;
-  category: string | null;
-  sku: string | null;
-  barcode: string | null;
-  stock_quantity: number;
-  min_stock_level: number;
-  selling_price: number;
-  cost_price: number;
-  expiry_date: string | null;
-  supplier_name: string | null;
+  primary: '#183C2A',
+  primary2: '#24583D',
+  primary3: '#2F7A51',
+  accent: '#6FD08C',
+
+  danger: '#D94F4F',
+  warning: '#C98A1F',
+  success: '#2D8A57',
+  info: '#4475D9',
+
+  redSoft: '#FFF1F1',
+  yellowSoft: '#FFF8E8',
+  greenSoft: '#EDF8F0',
+  blueSoft: '#EDF3FF',
 };
 
 const REQUIRED_COLUMNS = [
   'name',
-  'category',
   'stock_quantity',
   'min_stock_level',
-  'selling_price',
   'cost_price',
   'expiry_date',
   'supplier_name',
 ];
 
-function normalizeHeader(header: string) {
-  return header.trim().toLowerCase();
-}
+const OPTIONAL_COLUMNS = [
+  'category',
+  'sku',
+  'barcode',
+  'selling_price',
+  'status',
+];
 
-function safeString(value: unknown) {
-  if (value === null || value === undefined) return '';
-  return String(value).trim();
-}
+const csvTemplate = `name,category,sku,barcode,stock_quantity,min_stock_level,cost_price,selling_price,expiry_date,supplier_name,status
+Milk 1L,Dairy,MLK-001,1234567890123,25,10,0.80,1.20,2026-05-03,DairyFresh,active
+Bread White,Bakery,BRD-010,2234567890123,12,8,0.45,0.90,2026-04-26,BakeHouse,active
+Apple Juice 1L,Drinks,AJ-100,3234567890123,7,12,0.95,1.45,2026-05-10,FruitCo,active`;
 
-function safeNumber(value: unknown) {
-  const n = Number(String(value ?? '').replace(',', '.'));
-  return Number.isFinite(n) ? n : 0;
-}
+type ParsedRow = {
+  name: string;
+  category: string;
+  sku: string;
+  barcode: string;
+  stock_quantity: number;
+  min_stock_level: number;
+  cost_price: number;
+  selling_price: number;
+  expiry_date: string;
+  supplier_name: string;
+  status: string;
+};
 
-function normalizeDate(value: unknown): string | null {
-  const raw = safeString(value);
-  if (!raw) return null;
+type FoodAlertInsert = {
+  user_id: string;
+  title: string;
+  description: string;
+  severity: 'low' | 'medium' | 'high';
+  created_at: string;
+};
 
-  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoMatch) return raw;
+type FoodRecommendationInsert = {
+  user_id: string;
+  product_name: string;
+  recommendation_type: 'discount' | 'restock' | 'price_up' | 'price_down';
+  message: string;
+  impact_value: number;
+  created_at: string;
+};
 
-  const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (slashMatch) {
-    const [, d, m, y] = slashMatch;
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    const next = line[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
   }
 
-  const dotMatch = raw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (dotMatch) {
-    const [, d, m, y] = dotMatch;
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-  }
+  result.push(current.trim());
+  return result.map((cell) => cell.replace(/^"(.*)"$/, '$1').trim());
+}
 
-  const parsed = new Date(raw);
-  if (!Number.isNaN(parsed.getTime())) {
-    const y = parsed.getFullYear();
-    const m = String(parsed.getMonth() + 1).padStart(2, '0');
-    const d = String(parsed.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-
-  return null;
+function safeNumber(value: string | number | null | undefined): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const parsed = Number(String(value ?? '').trim());
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function daysUntil(dateString?: string | null) {
   if (!dateString) return null;
   const today = new Date();
   const target = new Date(dateString);
+
+  if (Number.isNaN(target.getTime())) return null;
+
   today.setHours(0, 0, 0, 0);
   target.setHours(0, 0, 0, 0);
+
   const diff = target.getTime() - today.getTime();
   return Math.ceil(diff / (1000 * 60 * 60 * 24));
 }
 
-function marginPercent(selling: number, cost: number) {
-  if (selling <= 0) return 0;
-  return ((selling - cost) / selling) * 100;
+function marginPercent(selling?: number | null, cost?: number | null) {
+  const s = safeNumber(selling);
+  const c = safeNumber(cost);
+  if (s <= 0) return 0;
+  return ((s - c) / s) * 100;
 }
 
-function buildAlertsForRow(
-  row: ParsedRow,
-  productId: string,
-  userId: string
-) {
-  const alerts: {
-    user_id: string;
-    title: string;
-    description: string;
-    severity: 'low' | 'medium' | 'high';
-    source_type: 'system' | 'expiry' | 'stock' | 'pricing' | 'compliance' | 'supplier';
-    source_product_id: string;
-  }[] = [];
+function normalizeRow(
+  row: Record<string, string>,
+  rowIndex: number,
+  errors: string[]
+): ParsedRow | null {
+  const name = row.name?.trim() || '';
+  const category = row.category?.trim() || 'Uncategorized';
+  const sku = row.sku?.trim() || '';
+  const barcode = row.barcode?.trim() || '';
+  const supplier_name = row.supplier_name?.trim() || '';
+  const status = row.status?.trim() || 'active';
 
+  const stock_quantity = safeNumber(row.stock_quantity);
+  const min_stock_level = safeNumber(row.min_stock_level);
+  const cost_price = safeNumber(row.cost_price);
+  const selling_price = row.selling_price?.trim()
+    ? safeNumber(row.selling_price)
+    : Number((cost_price * 1.35).toFixed(2));
+
+  const expiry_date = row.expiry_date?.trim() || '';
+
+  if (!name) {
+    errors.push(`Row ${rowIndex}: missing product name`);
+    return null;
+  }
+
+  if (!supplier_name) {
+    errors.push(`Row ${rowIndex}: missing supplier_name`);
+    return null;
+  }
+
+  if (!expiry_date || Number.isNaN(new Date(expiry_date).getTime())) {
+    errors.push(`Row ${rowIndex}: invalid expiry_date`);
+    return null;
+  }
+
+  if (stock_quantity < 0) {
+    errors.push(`Row ${rowIndex}: stock_quantity cannot be negative`);
+    return null;
+  }
+
+  if (min_stock_level < 0) {
+    errors.push(`Row ${rowIndex}: min_stock_level cannot be negative`);
+    return null;
+  }
+
+  if (cost_price < 0) {
+    errors.push(`Row ${rowIndex}: cost_price cannot be negative`);
+    return null;
+  }
+
+  if (selling_price < 0) {
+    errors.push(`Row ${rowIndex}: selling_price cannot be negative`);
+    return null;
+  }
+
+  return {
+    name,
+    category,
+    sku,
+    barcode,
+    stock_quantity,
+    min_stock_level,
+    cost_price,
+    selling_price,
+    expiry_date,
+    supplier_name,
+    status,
+  };
+}
+
+function buildAlertsForRow(row: ParsedRow): FoodAlertInsert[] {
+  const alerts: FoodAlertInsert[] = [];
+  const now = new Date().toISOString();
   const expiryDays = daysUntil(row.expiry_date);
   const margin = marginPercent(row.selling_price, row.cost_price);
 
-  if (row.stock_quantity <= row.min_stock_level) {
+  if (row.stock_quantity <= 0) {
     alerts.push({
-      user_id: userId,
-      title: `${row.name} below safe stock`,
-      description: `${row.name} has ${row.stock_quantity} units and is at or below minimum stock level (${row.min_stock_level}).`,
-      severity: row.stock_quantity <= 0 ? 'high' : 'medium',
-      source_type: 'stock',
-      source_product_id: productId,
+      user_id: '',
+      title: `${row.name} is out of stock`,
+      description: `The product is unavailable and should be reordered immediately.`,
+      severity: 'high',
+      created_at: now,
+    });
+  } else if (row.stock_quantity <= row.min_stock_level) {
+    alerts.push({
+      user_id: '',
+      title: `${row.name} is low in stock`,
+      description: `Current stock (${row.stock_quantity}) is at or below minimum level (${row.min_stock_level}).`,
+      severity: row.stock_quantity <= Math.max(1, Math.floor(row.min_stock_level / 2)) ? 'high' : 'medium',
+      created_at: now,
     });
   }
 
-  if (expiryDays !== null && expiryDays < 0) {
-    alerts.push({
-      user_id: userId,
-      title: `${row.name} already expired`,
-      description: `${row.name} is marked with an expiry date that has already passed.`,
-      severity: 'high',
-      source_type: 'expiry',
-      source_product_id: productId,
-    });
-  } else if (expiryDays !== null && expiryDays <= 2) {
-    alerts.push({
-      user_id: userId,
-      title: `${row.name} expires very soon`,
-      description: `${row.name} expires in ${expiryDays} day(s) and needs immediate review.`,
-      severity: 'high',
-      source_type: 'expiry',
-      source_product_id: productId,
-    });
-  } else if (expiryDays !== null && expiryDays <= 7) {
-    alerts.push({
-      user_id: userId,
-      title: `${row.name} nearing expiry`,
-      description: `${row.name} expires in ${expiryDays} day(s).`,
-      severity: 'medium',
-      source_type: 'expiry',
-      source_product_id: productId,
-    });
-  }
-
-  if (!row.barcode || !row.sku || !row.supplier_name || !row.expiry_date) {
-    alerts.push({
-      user_id: userId,
-      title: `${row.name} missing product details`,
-      description: `One or more important fields are missing: barcode, sku, supplier, or expiry date.`,
-      severity: 'low',
-      source_type: 'compliance',
-      source_product_id: productId,
-    });
+  if (expiryDays !== null) {
+    if (expiryDays < 0) {
+      alerts.push({
+        user_id: '',
+        title: `${row.name} is expired`,
+        description: `This product expired ${Math.abs(expiryDays)} day(s) ago.`,
+        severity: 'high',
+        created_at: now,
+      });
+    } else if (expiryDays <= 2) {
+      alerts.push({
+        user_id: '',
+        title: `${row.name} expires very soon`,
+        description: `This product expires in ${expiryDays} day(s).`,
+        severity: 'high',
+        created_at: now,
+      });
+    } else if (expiryDays <= 7) {
+      alerts.push({
+        user_id: '',
+        title: `${row.name} is near expiry`,
+        description: `This product expires in ${expiryDays} day(s).`,
+        severity: 'medium',
+        created_at: now,
+      });
+    }
   }
 
   if (margin < 10) {
     alerts.push({
-      user_id: userId,
-      title: `${row.name} weak margin`,
-      description: `${row.name} has a low estimated margin of ${margin.toFixed(0)}%.`,
+      user_id: '',
+      title: `${row.name} has weak margin`,
+      description: `The product margin is only ${margin.toFixed(0)}%, which is very low.`,
       severity: 'medium',
-      source_type: 'pricing',
-      source_product_id: productId,
+      created_at: now,
+    });
+  }
+
+  if (!row.barcode || !row.sku) {
+    alerts.push({
+      user_id: '',
+      title: `${row.name} has incomplete product data`,
+      description: `Missing ${!row.barcode ? 'barcode' : ''}${!row.barcode && !row.sku ? ' and ' : ''}${!row.sku ? 'sku' : ''}.`,
+      severity: 'low',
+      created_at: now,
     });
   }
 
   return alerts;
 }
 
-function buildRecommendationsForRow(
-  row: ParsedRow,
-  productId: string,
-  userId: string
-) {
-  const recommendations: {
-    user_id: string;
-    product_name: string;
-    product_id: string;
-    recommendation_type: 'discount' | 'restock' | 'price_up' | 'price_down';
-    message: string;
-    impact_value: number;
-  }[] = [];
-
+function buildRecommendationsForRow(row: ParsedRow): FoodRecommendationInsert[] {
+  const recommendations: FoodRecommendationInsert[] = [];
+  const now = new Date().toISOString();
   const expiryDays = daysUntil(row.expiry_date);
   const margin = marginPercent(row.selling_price, row.cost_price);
-  const stockValueAtSellPrice = row.stock_quantity * row.selling_price;
 
-  if (expiryDays !== null && expiryDays <= 5 && row.stock_quantity >= 8) {
+  if (expiryDays !== null && expiryDays >= 0 && expiryDays <= 5 && row.stock_quantity > 0) {
+    const impact = Number((row.stock_quantity * row.cost_price).toFixed(2));
     recommendations.push({
-      user_id: userId,
+      user_id: '',
       product_name: row.name,
-      product_id: productId,
       recommendation_type: 'discount',
-      message: `Apply a time-limited discount to reduce expiry waste on ${row.name}.`,
-      impact_value: Math.max(0, Number((stockValueAtSellPrice * 0.25).toFixed(2))),
+      message: `Apply a short-term discount to reduce waste before expiry.`,
+      impact_value: impact,
+      created_at: now,
     });
   }
 
-  if (row.stock_quantity <= row.min_stock_level) {
+  if (row.stock_quantity <= row.min_stock_level && row.stock_quantity >= 0) {
+    const estimatedRecovery = Number((Math.max(row.min_stock_level * 2, 10) * row.selling_price).toFixed(2));
     recommendations.push({
-      user_id: userId,
+      user_id: '',
       product_name: row.name,
-      product_id: productId,
       recommendation_type: 'restock',
-      message: `Restock ${row.name} soon to avoid shelf gaps and lost sales.`,
-      impact_value: Math.max(0, Number((row.selling_price * Math.max(5, row.min_stock_level)).toFixed(2))),
+      message: `Restock this product soon to avoid lost sales.`,
+      impact_value: estimatedRecovery,
+      created_at: now,
     });
   }
 
-  if (margin < 10 && expiryDays !== null && expiryDays > 10) {
+  if (margin < 12 && row.selling_price > 0) {
+    const uplift = Number((row.selling_price * 0.08 * Math.max(row.stock_quantity, 1)).toFixed(2));
     recommendations.push({
-      user_id: userId,
+      user_id: '',
       product_name: row.name,
-      product_id: productId,
       recommendation_type: 'price_up',
-      message: `Consider a small price increase for ${row.name} because margin is currently weak.`,
-      impact_value: Math.max(0, Number((row.stock_quantity * 0.10).toFixed(2))),
+      message: `Review pricing upward because margin is weaker than target.`,
+      impact_value: uplift,
+      created_at: now,
     });
   }
 
-  if (margin > 35 && expiryDays !== null && expiryDays <= 10) {
+  if (expiryDays !== null && expiryDays <= 3 && row.stock_quantity >= 6) {
+    const rescue = Number((row.stock_quantity * row.selling_price * 0.45).toFixed(2));
     recommendations.push({
-      user_id: userId,
+      user_id: '',
       product_name: row.name,
-      product_id: productId,
       recommendation_type: 'price_down',
-      message: `A slight markdown on ${row.name} may improve turnover before expiry.`,
-      impact_value: Math.max(0, Number((stockValueAtSellPrice * 0.12).toFixed(2))),
+      message: `Lower price aggressively to clear stock before expiry.`,
+      impact_value: rescue,
+      created_at: now,
     });
   }
 
   return recommendations;
 }
 
-function HeroStat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: 'green' | 'blue' | 'yellow' | 'red';
-}) {
-  const bgMap = {
-    green: palette.greenSoft,
-    blue: palette.blueSoft,
-    yellow: palette.yellowSoft,
-    red: palette.redSoft,
-  } as const;
-
-  const textMap = {
-    green: palette.primary2,
-    blue: palette.info,
-    yellow: palette.warning,
-    red: palette.danger,
-  } as const;
-
-  return (
-    <View style={[styles.heroStat, { backgroundColor: bgMap[tone] }]}>
-      <Text style={[styles.heroStatValue, { color: textMap[tone] }]}>{value}</Text>
-      <Text style={styles.heroStatLabel}>{label}</Text>
-    </View>
-  );
-}
-
-export default function UploadFoodCsvScreen() {
-  const [fileName, setFileName] = useState<string>('');
-  const [rawRows, setRawRows] = useState<CsvProductRow[]>([]);
-  const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
+export default function UploadScreen() {
+  const [fileName, setFileName] = useState('');
+  const [csvText, setCsvText] = useState('');
   const [headers, setHeaders] = useState<string[]>([]);
-  const [missingColumns, setMissingColumns] = useState<string[]>([]);
+  const [rawRows, setRawRows] = useState<Record<string, string>[]>([]);
+  const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [isPicking, setIsPicking] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const missingColumns = useMemo(
+    () => REQUIRED_COLUMNS.filter((col) => !headers.includes(col)),
+    [headers]
+  );
 
   const previewRows = useMemo(() => parsedRows.slice(0, 8), [parsedRows]);
 
   const stats = useMemo(() => {
     const total = parsedRows.length;
-    const lowStock = parsedRows.filter(
-      (r) => r.stock_quantity <= r.min_stock_level
-    ).length;
-    const nearExpiry = parsedRows.filter((r) => {
-      const d = daysUntil(r.expiry_date);
+    const lowStock = parsedRows.filter((row) => row.stock_quantity <= row.min_stock_level).length;
+    const nearExpiry = parsedRows.filter((row) => {
+      const d = daysUntil(row.expiry_date);
       return d !== null && d >= 0 && d <= 7;
     }).length;
     const weakMargin = parsedRows.filter(
-      (r) => marginPercent(r.selling_price, r.cost_price) < 15
+      (row) => marginPercent(row.selling_price, row.cost_price) < 15
     ).length;
 
     return { total, lowStock, nearExpiry, weakMargin };
   }, [parsedRows]);
 
+  const resetAll = () => {
+    setFileName('');
+    setCsvText('');
+    setHeaders([]);
+    setRawRows([]);
+    setParsedRows([]);
+    setErrors([]);
+  };
+
+  const parseCsvText = (text: string) => {
+    const clean = text.replace(/\r/g, '').trim();
+
+    if (!clean) {
+      setHeaders([]);
+      setRawRows([]);
+      setParsedRows([]);
+      setErrors(['CSV file is empty']);
+      return;
+    }
+
+    const lines = clean
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length < 2) {
+      setHeaders([]);
+      setRawRows([]);
+      setParsedRows([]);
+      setErrors(['CSV must contain at least one header row and one data row']);
+      return;
+    }
+
+    const headerRow = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
+    const uniqueHeaders = [...headerRow];
+
+    setHeaders(uniqueHeaders);
+
+    const nextRawRows: Record<string, string>[] = [];
+    const nextParsedRows: ParsedRow[] = [];
+    const nextErrors: string[] = [];
+
+    for (let i = 1; i < lines.length; i += 1) {
+      const values = parseCsvLine(lines[i]);
+      const rowObj: Record<string, string> = {};
+
+      uniqueHeaders.forEach((header, index) => {
+        rowObj[header] = values[index] ?? '';
+      });
+
+      nextRawRows.push(rowObj);
+
+      if (REQUIRED_COLUMNS.every((col) => headerRow.includes(col))) {
+        const normalized = normalizeRow(rowObj, i + 1, nextErrors);
+        if (normalized) nextParsedRows.push(normalized);
+      }
+    }
+
+    setRawRows(nextRawRows);
+    setParsedRows(nextParsedRows);
+    setErrors(nextErrors);
+  };
+
   const pickCsv = async () => {
     try {
       setIsPicking(true);
-      setErrors([]);
-      setMissingColumns([]);
 
       const result = await DocumentPicker.getDocumentAsync({
         type: ['text/csv', 'text/comma-separated-values', 'application/vnd.ms-excel'],
@@ -356,456 +460,410 @@ export default function UploadFoodCsvScreen() {
         multiple: false,
       });
 
-      if (result.canceled) {
-        setIsPicking(false);
-        return;
-      }
+      if (result.canceled || !result.assets?.length) return;
 
-      const asset = result.assets?.[0];
-      if (!asset) {
-        setIsPicking(false);
-        return;
-      }
+      const asset = result.assets[0];
+      setFileName(asset.name || 'selected-file.csv');
 
-      setFileName(asset.name || 'products.csv');
+      const response = await fetch(asset.uri);
+      const text = await response.text();
 
-      let textContent = '';
-
-      if (asset.uri.startsWith('file://')) {
-        const response = await fetch(asset.uri);
-        textContent = await response.text();
-      } else if (Platform.OS === 'web' && asset.file) {
-        textContent = await asset.file.text();
-      } else {
-        const response = await fetch(asset.uri);
-        textContent = await response.text();
-      }
-
-      Papa.parse<CsvProductRow>(textContent, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (results) => {
-          const incomingHeaders = (results.meta.fields || []).map(normalizeHeader);
-          setHeaders(incomingHeaders);
-
-          const missing = REQUIRED_COLUMNS.filter(
-            (col) => !incomingHeaders.includes(col)
-          );
-          setMissingColumns(missing);
-
-          const parseErrors: string[] = [];
-          const cleanedRows: ParsedRow[] = [];
-
-          if (missing.length > 0) {
-            setErrors([
-              `Missing required columns: ${missing.join(', ')}`,
-            ]);
-            setRawRows([]);
-            setParsedRows([]);
-            return;
-          }
-
-          const originalRows = results.data || [];
-          setRawRows(originalRows);
-
-          originalRows.forEach((row, index) => {
-            const normalizedRow: ParsedRow = {
-              name: safeString(row.name),
-              category: safeString(row.category) || null,
-              sku: safeString(row.sku) || null,
-              barcode: safeString(row.barcode) || null,
-              stock_quantity: safeNumber(row.stock_quantity),
-              min_stock_level: safeNumber(row.min_stock_level),
-              selling_price: safeNumber(row.selling_price),
-              cost_price: safeNumber(row.cost_price),
-              expiry_date: normalizeDate(row.expiry_date),
-              supplier_name: safeString(row.supplier_name) || null,
-            };
-
-            if (!normalizedRow.name) {
-              parseErrors.push(`Row ${index + 2}: name is required.`);
-              return;
-            }
-
-            if (normalizedRow.selling_price < 0 || normalizedRow.cost_price < 0) {
-              parseErrors.push(`Row ${index + 2}: prices cannot be negative.`);
-              return;
-            }
-
-            if (normalizedRow.stock_quantity < 0 || normalizedRow.min_stock_level < 0) {
-              parseErrors.push(`Row ${index + 2}: stock values cannot be negative.`);
-              return;
-            }
-
-            cleanedRows.push(normalizedRow);
-          });
-
-          setErrors(parseErrors);
-          setParsedRows(cleanedRows);
-        },
-        error: (error: Error) => {
-  setErrors([error.message || 'Failed to parse CSV file.']);
-  setRawRows([]);
-  setParsedRows([]);
-},
-      });
+      setCsvText(text);
+      parseCsvText(text);
     } catch (error: any) {
-      setErrors([error?.message || 'Failed to open CSV file.']);
+      Alert.alert('CSV Error', error?.message || 'Failed to open CSV file.');
     } finally {
       setIsPicking(false);
     }
   };
 
-  const resetAll = () => {
-    setFileName('');
-    setRawRows([]);
-    setParsedRows([]);
-    setHeaders([]);
-    setMissingColumns([]);
-    setErrors([]);
-  };
+  const handleUpload = async () => {
+    if (!parsedRows.length) {
+      Alert.alert('No data', 'Please choose a valid CSV file first.');
+      return;
+    }
 
-  const uploadToSupabase = async () => {
+    if (missingColumns.length > 0) {
+      Alert.alert(
+        'Missing columns',
+        `Your CSV is missing: ${missingColumns.join(', ')}`
+      );
+      return;
+    }
+
     try {
-      if (parsedRows.length === 0) {
-        Alert.alert('No valid rows', 'Please select a valid CSV file first.');
-        return;
-      }
-
-      if (errors.length > 0) {
-        Alert.alert('Fix CSV issues', 'Please resolve the row errors before uploading.');
-        return;
-      }
-
       setIsUploading(true);
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
       const {
         data: { user },
-        error: authError,
+        error: userError,
       } = await supabase.auth.getUser();
 
-      if (authError) throw authError;
+      if (userError) throw userError;
       if (!user) {
-        Alert.alert('Authentication required', 'Please log in again.');
+        router.replace('/login');
         return;
       }
 
-      const productPayload = parsedRows.map((row) => ({
+      const productRows = parsedRows.map((row) => ({
         user_id: user.id,
         name: row.name,
         category: row.category,
-        sku: row.sku,
-        barcode: row.barcode,
+        sku: row.sku || null,
+        barcode: row.barcode || null,
         stock_quantity: row.stock_quantity,
         min_stock_level: row.min_stock_level,
-        selling_price: row.selling_price,
         cost_price: row.cost_price,
+        selling_price: row.selling_price,
         expiry_date: row.expiry_date,
         supplier_name: row.supplier_name,
-        status: 'active',
+        status: row.status || 'active',
       }));
 
-      const { data: insertedProducts, error: productError } = await supabase
+      const { error: productError } = await supabase
         .from('food_products')
-        .insert(productPayload)
-        .select('id, name, category, sku, barcode, stock_quantity, min_stock_level, selling_price, cost_price, expiry_date, supplier_name');
+        .insert(productRows);
 
       if (productError) throw productError;
 
-      const allAlerts: any[] = [];
-      const allRecommendations: any[] = [];
+      const alertRows: FoodAlertInsert[] = [];
+      const recommendationRows: FoodRecommendationInsert[] = [];
 
-      (insertedProducts || []).forEach((product) => {
-        const row: ParsedRow = {
-          name: product.name,
-          category: product.category,
-          sku: product.sku,
-          barcode: product.barcode,
-          stock_quantity: product.stock_quantity,
-          min_stock_level: product.min_stock_level,
-          selling_price: Number(product.selling_price || 0),
-          cost_price: Number(product.cost_price || 0),
-          expiry_date: product.expiry_date,
-          supplier_name: product.supplier_name,
-        };
-
-        allAlerts.push(...buildAlertsForRow(row, product.id, user.id));
-        allRecommendations.push(...buildRecommendationsForRow(row, product.id, user.id));
-      });
-
-      if (allAlerts.length > 0) {
-        const { error: alertsError } = await supabase
-          .from('food_alerts')
-          .insert(allAlerts);
-        if (alertsError) throw alertsError;
-      }
-
-      if (allRecommendations.length > 0) {
-        const { error: recommendationsError } = await supabase
-          .from('food_recommendations')
-          .insert(allRecommendations);
-        if (recommendationsError) throw recommendationsError;
-      }
-
-      const { error: logError } = await supabase
-        .from('food_import_logs')
-        .insert({
-          user_id: user.id,
-          file_name: fileName || 'products.csv',
-          row_count: parsedRows.length,
-          status: 'completed',
-          notes: `Imported ${parsedRows.length} rows, generated ${allAlerts.length} alerts and ${allRecommendations.length} recommendations.`,
+      parsedRows.forEach((row) => {
+        buildAlertsForRow(row).forEach((alert) => {
+          alertRows.push({ ...alert, user_id: user.id });
         });
 
-      if (logError) throw logError;
+        buildRecommendationsForRow(row).forEach((recommendation) => {
+          recommendationRows.push({ ...recommendation, user_id: user.id });
+        });
+      });
 
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (alertRows.length > 0) {
+        const { error: alertError } = await supabase.from('food_alerts').insert(alertRows);
+        if (alertError) throw alertError;
+      }
+
+      if (recommendationRows.length > 0) {
+        const { error: recommendationError } = await supabase
+          .from('food_recommendations')
+          .insert(recommendationRows);
+
+        if (recommendationError) throw recommendationError;
+      }
 
       Alert.alert(
-        'Upload completed',
-        `Inserted ${parsedRows.length} products, ${allAlerts.length} alerts, and ${allRecommendations.length} recommendations.`,
+        'Upload successful',
+        `${parsedRows.length} products uploaded\n${alertRows.length} alerts generated\n${recommendationRows.length} recommendations generated`,
         [
+          { text: 'Stay here' },
           {
             text: 'Open Dashboard',
             onPress: () => router.push('/(tabs)'),
           },
-          {
-            text: 'Stay here',
-            style: 'cancel',
-          },
         ]
       );
-
-      resetAll();
     } catch (error: any) {
-      Alert.alert('Upload failed', error?.message || 'Something went wrong while uploading.');
+      Alert.alert('Upload failed', error?.message || 'Something went wrong during upload.');
     } finally {
       setIsUploading(false);
     }
   };
 
-  const csvTemplate = `name,category,sku,barcode,stock_quantity,min_stock_level,selling_price,cost_price,expiry_date,supplier_name
-Fresh Milk 1L,Dairy,DAIRY-001,100000000001,18,10,1.59,1.05,2026-04-22,Kos Dairy
-Greek Yogurt 500g,Dairy,DAIRY-002,100000000002,11,8,2.49,1.60,2026-04-21,Kos Dairy
-White Bread 500g,Bakery,BAKE-001,100000000004,4,10,0.79,0.45,2026-04-19,Urban Bakery`;
-
   return (
     <SafeAreaView style={styles.safeArea}>
-      <LinearGradient colors={[palette.bg, palette.bg2, palette.bg3]} style={styles.container}>
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
+  <View style={styles.pageWrap}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+    >
+        <LinearGradient
+          colors={['#163728', '#1C4630', '#24583D']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.hero}
         >
-          <LinearGradient
-            colors={['#E7FFF1', '#D9FCE7', '#F6FFF9']}
-            style={styles.heroCard}
+          <View style={styles.heroTopRow}>
+  <View style={styles.heroIdentity}>
+    <TouchableOpacity
+      style={styles.heroMenuButton}
+      onPress={() => setSidebarOpen(true)}
+    >
+      <Ionicons name="menu-outline" size={20} color="#fff" />
+    </TouchableOpacity>
+
+    <View style={styles.heroIcon}>
+      <Ionicons name="cloud-upload-outline" size={22} color="#fff" />
+    </View>
+
+    <View style={{ flex: 1 }}>
+      <Text style={styles.heroEyebrow}>Import center</Text>
+      <Text style={styles.heroTitle}>Upload food products CSV</Text>
+    </View>
+  </View>
+
+  <TouchableOpacity
+    style={styles.heroBackButton}
+    onPress={() => router.push('/(tabs)')}
+  >
+    <Ionicons name="arrow-back-outline" size={20} color="#fff" />
+  </TouchableOpacity>
+</View>
+
+          <Text style={styles.heroSubtitle}>
+            Import your inventory into Supabase and automatically generate alerts,
+            pricing signals, restock suggestions, and expiry intelligence.
+          </Text>
+
+          <View style={styles.heroStatsRow}>
+            <View style={styles.heroStat}>
+              <Text style={styles.heroStatValue}>{stats.total}</Text>
+              <Text style={styles.heroStatLabel}>Rows ready</Text>
+            </View>
+            <View style={styles.heroStatDivider} />
+            <View style={styles.heroStat}>
+              <Text style={styles.heroStatValue}>{stats.lowStock}</Text>
+              <Text style={styles.heroStatLabel}>Low stock</Text>
+            </View>
+            <View style={styles.heroStatDivider} />
+            <View style={styles.heroStat}>
+              <Text style={styles.heroStatValue}>{stats.nearExpiry}</Text>
+              <Text style={styles.heroStatLabel}>Near expiry</Text>
+            </View>
+            <View style={styles.heroStatDivider} />
+            <View style={styles.heroStat}>
+              <Text style={styles.heroStatValue}>{stats.weakMargin}</Text>
+              <Text style={styles.heroStatLabel}>Weak margin</Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        <View style={styles.commandBar}>
+          <TouchableOpacity
+            style={styles.commandPrimary}
+            onPress={pickCsv}
+            activeOpacity={0.9}
+            disabled={isPicking}
           >
-            <View style={styles.heroTopRow}>
-              <View style={styles.heroIcon}>
-                <Ionicons name="cloud-upload-outline" size={22} color={palette.primary2} />
-              </View>
-
-              <TouchableOpacity
-                style={styles.headerButton}
-                onPress={() => router.push('/(tabs)')}
-              >
-                <Ionicons name="arrow-back-outline" size={20} color={palette.primary2} />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.heroTitle}>Upload food products CSV</Text>
-            <Text style={styles.heroSubtitle}>
-              Import your product inventory into Supabase and automatically generate alerts and business recommendations.
-            </Text>
-
-            <View style={styles.heroStatsRow}>
-              <HeroStat label="Rows ready" value={`${stats.total}`} tone="green" />
-              <HeroStat label="Low stock" value={`${stats.lowStock}`} tone="yellow" />
-              <HeroStat label="Near expiry" value={`${stats.nearExpiry}`} tone="red" />
-              <HeroStat label="Weak margin" value={`${stats.weakMargin}`} tone="blue" />
-            </View>
-          </LinearGradient>
-
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Step 1 — Choose a CSV file</Text>
-            <Text style={styles.sectionSubtitle}>
-              Required columns: {REQUIRED_COLUMNS.join(', ')}
-            </Text>
-
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={pickCsv}
-              activeOpacity={0.9}
-              disabled={isPicking}
+            <LinearGradient
+              colors={[palette.primary, palette.primary2]}
+              style={styles.commandPrimaryGradient}
             >
-              <LinearGradient
-                colors={[palette.primary, palette.primary2]}
-                style={styles.primaryButtonGradient}
-              >
-                {isPicking ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <>
-                    <Ionicons name="document-attach-outline" size={18} color="#fff" />
-                    <Text style={styles.primaryButtonText}>Choose CSV</Text>
-                  </>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
+              {isPicking ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="document-attach-outline" size={18} color="#fff" />
+                  <Text style={styles.commandPrimaryText}>Choose CSV</Text>
+                </>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
 
-            {fileName ? (
-              <View style={styles.fileCard}>
-                <View style={styles.fileCardLeft}>
-                  <View style={styles.fileIconWrap}>
-                    <MaterialCommunityIcons name="file-delimited-outline" size={22} color={palette.success} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.fileName}>{fileName}</Text>
-                    <Text style={styles.fileMeta}>
-                      {rawRows.length} raw rows • {parsedRows.length} valid rows
-                    </Text>
-                  </View>
-                </View>
+          <TouchableOpacity
+            style={[
+              styles.commandSecondary,
+              (!parsedRows.length || missingColumns.length > 0 || isUploading) && styles.commandDisabled,
+            ]}
+            onPress={handleUpload}
+            activeOpacity={0.9}
+            disabled={!parsedRows.length || missingColumns.length > 0 || isUploading}
+          >
+            {isUploading ? (
+              <ActivityIndicator color={palette.primary2} />
+            ) : (
+              <>
+                <Ionicons name="cloud-upload-outline" size={18} color={palette.primary2} />
+                <Text style={styles.commandSecondaryText}>Upload to Supabase</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
 
-                <TouchableOpacity onPress={resetAll}>
-                  <Ionicons name="trash-outline" size={20} color={palette.danger} />
-                </TouchableOpacity>
+        {fileName ? (
+          <View style={styles.fileSummaryCard}>
+            <View style={styles.fileSummaryLeft}>
+              <View style={styles.fileSummaryIcon}>
+                <MaterialCommunityIcons
+                  name="file-delimited-outline"
+                  size={22}
+                  color={palette.success}
+                />
               </View>
-            ) : null}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fileSummaryName}>{fileName}</Text>
+                <Text style={styles.fileSummaryMeta}>
+                  {rawRows.length} raw rows • {parsedRows.length} valid rows
+                </Text>
+              </View>
+            </View>
+
+            <TouchableOpacity onPress={resetAll} style={styles.fileDeleteButton}>
+              <Ionicons name="trash-outline" size={20} color={palette.danger} />
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        <View style={styles.gridTwo}>
+          <View style={styles.panel}>
+            <Text style={styles.panelEyebrow}>Step 1</Text>
+            <Text style={styles.panelTitle}>Required structure</Text>
+            <Text style={styles.panelSubtitle}>
+              These columns must exist in every CSV import.
+            </Text>
+
+            <View style={styles.chipsWrap}>
+              {REQUIRED_COLUMNS.map((col) => (
+                <View key={col} style={styles.chip}>
+                  <Text style={styles.chipText}>{col}</Text>
+                </View>
+              ))}
+            </View>
           </View>
 
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>CSV template example</Text>
-            <Text style={styles.sectionSubtitle}>
-              Copy this exact structure for your imports.
+          <View style={styles.panel}>
+            <Text style={styles.panelEyebrow}>Step 2</Text>
+            <Text style={styles.panelTitle}>Template example</Text>
+            <Text style={styles.panelSubtitle}>
+              Keep this exact format for best results.
             </Text>
 
             <View style={styles.templateBox}>
               <Text style={styles.templateText}>{csvTemplate}</Text>
             </View>
           </View>
+        </View>
 
-          {headers.length > 0 ? (
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Detected columns</Text>
-              <View style={styles.chipsWrap}>
-                {headers.map((header) => (
-                  <View key={header} style={styles.chip}>
-                    <Text style={styles.chipText}>{header}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          {missingColumns.length > 0 ? (
-            <View style={[styles.sectionCard, styles.errorCard]}>
-              <Text style={styles.errorTitle}>Missing required columns</Text>
-              {missingColumns.map((col) => (
-                <Text key={col} style={styles.errorLine}>• {col}</Text>
-              ))}
-            </View>
-          ) : null}
-
-          {errors.length > 0 ? (
-            <View style={[styles.sectionCard, styles.errorCard]}>
-              <Text style={styles.errorTitle}>CSV row issues</Text>
-              {errors.slice(0, 12).map((err, index) => (
-                <Text key={`${err}-${index}`} style={styles.errorLine}>• {err}</Text>
-              ))}
-              {errors.length > 12 ? (
-                <Text style={styles.errorLine}>• And {errors.length - 12} more...</Text>
-              ) : null}
-            </View>
-          ) : null}
-
-          {previewRows.length > 0 ? (
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Preview</Text>
-              <Text style={styles.sectionSubtitle}>
-                First valid rows that will be inserted into Supabase.
-              </Text>
-
-              <View style={styles.previewList}>
-                {previewRows.map((row, index) => {
-                  const margin = marginPercent(row.selling_price, row.cost_price);
-                  const expiryDays = daysUntil(row.expiry_date);
-
-                  return (
-                    <View key={`${row.name}-${index}`} style={styles.previewCard}>
-                      <View style={styles.previewTop}>
-                        <View style={styles.previewIconWrap}>
-                          <MaterialCommunityIcons name="food-outline" size={18} color={palette.primary2} />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.previewName}>{row.name}</Text>
-                          <Text style={styles.previewMeta}>
-                            {row.category || 'General'} • Supplier: {row.supplier_name || 'N/A'}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.previewStats}>
-                        <View style={styles.previewStat}>
-                          <Text style={styles.previewStatValue}>{row.stock_quantity}</Text>
-                          <Text style={styles.previewStatLabel}>Stock</Text>
-                        </View>
-                        <View style={styles.previewStat}>
-                          <Text style={styles.previewStatValue}>{row.min_stock_level}</Text>
-                          <Text style={styles.previewStatLabel}>Min</Text>
-                        </View>
-                        <View style={styles.previewStat}>
-                          <Text style={styles.previewStatValue}>€{row.selling_price.toFixed(2)}</Text>
-                          <Text style={styles.previewStatLabel}>Sell</Text>
-                        </View>
-                        <View style={styles.previewStat}>
-                          <Text style={styles.previewStatValue}>{margin.toFixed(0)}%</Text>
-                          <Text style={styles.previewStatLabel}>Margin</Text>
-                        </View>
-                        <View style={styles.previewStat}>
-                          <Text style={styles.previewStatValue}>
-                            {expiryDays === null ? '—' : `${expiryDays}d`}
-                          </Text>
-                          <Text style={styles.previewStatLabel}>Expiry</Text>
-                        </View>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            </View>
-          ) : null}
-
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Step 2 — Upload into Supabase</Text>
-            <Text style={styles.sectionSubtitle}>
-              This will insert products and automatically create alerts and recommendations.
+        {headers.length > 0 ? (
+          <View style={styles.panel}>
+            <Text style={styles.panelEyebrow}>Detected</Text>
+            <Text style={styles.panelTitle}>Detected columns</Text>
+            <Text style={styles.panelSubtitle}>
+              These are the columns found in your uploaded file.
             </Text>
 
-            <TouchableOpacity
-              style={[
-                styles.uploadButton,
-                (parsedRows.length === 0 || errors.length > 0 || isUploading) && styles.uploadButtonDisabled,
-              ]}
-              onPress={uploadToSupabase}
-              activeOpacity={0.9}
-              disabled={parsedRows.length === 0 || errors.length > 0 || isUploading}
-            >
-              {isUploading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="cloud-done-outline" size={18} color="#fff" />
-                  <Text style={styles.uploadButtonText}>Upload to Supabase</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            <View style={styles.chipsWrap}>
+              {headers.map((header) => (
+                <View key={header} style={styles.detectedChip}>
+                  <Text style={styles.detectedChipText}>{header}</Text>
+                </View>
+              ))}
+            </View>
           </View>
+        ) : null}
 
-          <View style={{ height: 30 }} />
-        </ScrollView>
-      </LinearGradient>
+        {missingColumns.length > 0 ? (
+          <View style={[styles.panel, styles.errorPanel]}>
+            <Text style={styles.errorTitle}>Missing required columns</Text>
+            {missingColumns.map((col) => (
+              <Text key={col} style={styles.errorLine}>• {col}</Text>
+            ))}
+          </View>
+        ) : null}
+
+        {errors.length > 0 ? (
+          <View style={[styles.panel, styles.errorPanel]}>
+            <Text style={styles.errorTitle}>CSV row issues</Text>
+            {errors.slice(0, 12).map((err, index) => (
+              <Text key={`${err}-${index}`} style={styles.errorLine}>• {err}</Text>
+            ))}
+            {errors.length > 12 ? (
+              <Text style={styles.errorLine}>• And {errors.length - 12} more...</Text>
+            ) : null}
+          </View>
+        ) : null}
+
+        {previewRows.length > 0 ? (
+          <View style={styles.panel}>
+            <View style={styles.previewHeader}>
+              <View>
+                <Text style={styles.panelEyebrow}>Preview</Text>
+                <Text style={styles.panelTitle}>Rows that will be inserted</Text>
+                <Text style={styles.panelSubtitle}>
+                  First valid rows that will be uploaded and analyzed.
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.previewList}>
+              {previewRows.map((row, index) => {
+                const margin = marginPercent(row.selling_price, row.cost_price);
+                const expiryDays = daysUntil(row.expiry_date);
+
+                return (
+                  <View key={`${row.name}-${index}`} style={styles.previewCard}>
+                    <View style={styles.previewTop}>
+                      <View style={styles.previewNameWrap}>
+                        <Text style={styles.previewName}>{row.name}</Text>
+                        <Text style={styles.previewCategory}>{row.category || 'Uncategorized'}</Text>
+                      </View>
+                      <Text style={styles.previewPrice}>€{row.selling_price.toFixed(2)}</Text>
+                    </View>
+
+                    <View style={styles.previewMetaRow}>
+                      <View style={styles.previewMetaPill}>
+                        <Text style={styles.previewMetaLabel}>Stock</Text>
+                        <Text style={styles.previewMetaValue}>{row.stock_quantity}</Text>
+                      </View>
+
+                      <View style={styles.previewMetaPill}>
+                        <Text style={styles.previewMetaLabel}>Min</Text>
+                        <Text style={styles.previewMetaValue}>{row.min_stock_level}</Text>
+                      </View>
+
+                      <View style={styles.previewMetaPill}>
+                        <Text style={styles.previewMetaLabel}>Margin</Text>
+                        <Text
+                          style={[
+                            styles.previewMetaValue,
+                            margin < 10
+                              ? { color: palette.danger }
+                              : margin < 20
+                              ? { color: palette.warning }
+                              : { color: palette.success },
+                          ]}
+                        >
+                          {margin.toFixed(0)}%
+                        </Text>
+                      </View>
+
+                      <View style={styles.previewMetaPill}>
+                        <Text style={styles.previewMetaLabel}>Expiry</Text>
+                        <Text
+                          style={[
+                            styles.previewMetaValue,
+                            expiryDays !== null && expiryDays <= 2
+                              ? { color: palette.danger }
+                              : expiryDays !== null && expiryDays <= 7
+                              ? { color: palette.warning }
+                              : null,
+                          ]}
+                        >
+                          {expiryDays === null ? '—' : `${expiryDays}d`}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text style={styles.previewSupplier}>
+                      Supplier: {row.supplier_name || 'Missing'}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
+
+              <View style={styles.bottomSpace} />
+    </ScrollView>
+
+    <AppSidebar
+      visible={sidebarOpen}
+      onClose={() => setSidebarOpen(false)}
+      active="upload"
+    />
+  </View>
     </SafeAreaView>
   );
 }
@@ -817,290 +875,365 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
+    backgroundColor: palette.bg,
   },
+  pageWrap: {
+  flex: 1,
+  backgroundColor: palette.bg,
+},
+heroMenuButton: {
+  width: 42,
+  height: 42,
+  borderRadius: 14,
+  backgroundColor: 'rgba(255,255,255,0.12)',
+  alignItems: 'center',
+  justifyContent: 'center',
+},
   scrollContent: {
     paddingHorizontal: 18,
-    paddingTop: 16,
+    paddingTop: 14,
     paddingBottom: 24,
   },
 
-  heroCard: {
-    borderRadius: 28,
+  hero: {
+    borderRadius: 30,
     padding: 20,
-    borderWidth: 1,
-    borderColor: palette.borderStrong,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   heroTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  heroIdentity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+    paddingRight: 12,
+  },
   heroIcon: {
     width: 50,
     height: 50,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: palette.borderStrong,
   },
-  headerButton: {
+  heroEyebrow: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 3,
+  },
+  heroTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  heroSubtitle: {
+    marginTop: 14,
+    color: 'rgba(255,255,255,0.84)',
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '500',
+  },
+  heroBackButton: {
     width: 42,
     height: 42,
     borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFFCC',
-    borderWidth: 1,
-    borderColor: palette.borderStrong,
-  },
-  heroTitle: {
-    marginTop: 18,
-    color: palette.text,
-    fontSize: 28,
-    lineHeight: 34,
-    fontWeight: '900',
-  },
-  heroSubtitle: {
-    marginTop: 10,
-    color: palette.textMuted,
-    fontSize: 14,
-    lineHeight: 22,
-    fontWeight: '500',
   },
   heroStatsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
     marginTop: 18,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 10,
   },
   heroStat: {
-    borderRadius: 18,
-    padding: 14,
-    minWidth: '47%',
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   heroStatValue: {
+    color: '#fff',
     fontSize: 22,
     fontWeight: '900',
+    letterSpacing: -0.7,
     marginBottom: 4,
   },
   heroStatLabel: {
-    color: palette.textSoft,
-    fontSize: 12,
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 11,
     fontWeight: '700',
+    textAlign: 'center',
+  },
+  heroStatDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
 
-  sectionCard: {
-    backgroundColor: palette.card,
-    borderRadius: 22,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: palette.border,
+  commandBar: {
+    flexDirection: 'row',
+    gap: 10,
     marginBottom: 16,
   },
-  sectionTitle: {
-    color: palette.text,
-    fontSize: 18,
-    fontWeight: '900',
-    marginBottom: 6,
-  },
-  sectionSubtitle: {
-    color: palette.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 16,
-    fontWeight: '500',
-  },
-
-  primaryButton: {
-    borderRadius: 16,
+  commandPrimary: {
+    flex: 1,
+    borderRadius: 18,
     overflow: 'hidden',
   },
-  primaryButtonGradient: {
+  commandPrimaryGradient: {
     minHeight: 54,
-    borderRadius: 16,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
   },
-  primaryButtonText: {
+  commandPrimaryText: {
     color: '#fff',
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '900',
+  },
+  commandSecondary: {
+    flex: 1,
+    minHeight: 54,
+    borderRadius: 18,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  commandSecondaryText: {
+    color: palette.primary2,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  commandDisabled: {
+    opacity: 0.5,
   },
 
-  fileCard: {
-    marginTop: 16,
-    borderRadius: 18,
+  fileSummaryCard: {
+    backgroundColor: palette.surface,
+    borderRadius: 22,
     padding: 14,
-    backgroundColor: palette.cardSoft,
     borderWidth: 1,
     borderColor: palette.border,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginBottom: 16,
   },
-  fileCardLeft: {
+  fileSummaryLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
     flex: 1,
-    paddingRight: 12,
+    paddingRight: 10,
   },
-  fileIconWrap: {
+  fileSummaryIcon: {
     width: 46,
     height: 46,
-    borderRadius: 16,
+    borderRadius: 14,
     backgroundColor: palette.greenSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
   },
-  fileName: {
+  fileSummaryName: {
     color: palette.text,
     fontSize: 14,
     fontWeight: '900',
-    marginBottom: 4,
+    marginBottom: 3,
   },
-  fileMeta: {
+  fileSummaryMeta: {
     color: palette.textMuted,
     fontSize: 12,
     fontWeight: '600',
   },
+  fileDeleteButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
-  templateBox: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    padding: 14,
+  gridTwo: {
+    gap: 12,
+    marginBottom: 12,
+  },
+  panel: {
+    backgroundColor: palette.surface,
+    borderRadius: 24,
+    padding: 16,
     borderWidth: 1,
     borderColor: palette.border,
+    marginBottom: 12,
   },
-  templateText: {
-    color: palette.textSoft,
-    fontSize: 12,
-    lineHeight: 18,
-    fontFamily: Platform.select({
-      ios: 'Menlo',
-      android: 'monospace',
-      web: 'monospace',
-      default: 'monospace',
-    }),
+  panelEyebrow: {
+    color: palette.primary2,
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  panelTitle: {
+    color: palette.text,
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+  },
+  panelSubtitle: {
+    color: palette.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 5,
+    fontWeight: '500',
   },
 
   chipsWrap: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+    marginTop: 14,
   },
   chip: {
-    backgroundColor: palette.greenSoft,
-    borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: palette.surfaceSoft,
   },
   chipText: {
-    color: palette.primary2,
+    color: palette.textSoft,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  detectedChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: palette.greenSoft,
+  },
+  detectedChipText: {
+    color: palette.success,
     fontSize: 12,
     fontWeight: '800',
   },
 
-  errorCard: {
-    borderColor: '#FFD3D3',
-    backgroundColor: palette.redSoft,
+  templateBox: {
+    marginTop: 14,
+    borderRadius: 18,
+    backgroundColor: palette.surfaceSoft,
+    padding: 14,
   },
-  errorTitle: {
-    color: palette.danger,
-    fontSize: 16,
-    fontWeight: '900',
-    marginBottom: 10,
-  },
-  errorLine: {
-    color: '#991B1B',
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: 4,
+  templateText: {
+    color: palette.textSoft,
+    fontSize: 12,
+    lineHeight: 18,
     fontWeight: '600',
   },
 
+  errorPanel: {
+    backgroundColor: palette.redSoft,
+    borderColor: '#F1CACA',
+  },
+  errorTitle: {
+    color: palette.danger,
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 8,
+  },
+  errorLine: {
+    color: palette.textSoft,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: '500',
+    marginBottom: 3,
+  },
+
+  previewHeader: {
+    marginBottom: 14,
+  },
   previewList: {
-    gap: 12,
+    gap: 10,
   },
   previewCard: {
-    borderRadius: 18,
+    backgroundColor: palette.surfaceSoft,
+    borderRadius: 20,
     padding: 14,
-    backgroundColor: palette.cardSoft,
-    borderWidth: 1,
-    borderColor: palette.border,
   },
   previewTop: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 10,
   },
-  previewIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: palette.greenSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
+  previewNameWrap: {
+    flex: 1,
   },
   previewName: {
     color: palette.text,
     fontSize: 14,
     fontWeight: '900',
-    marginBottom: 4,
+    marginBottom: 3,
   },
-  previewMeta: {
+  previewCategory: {
     color: palette.textMuted,
     fontSize: 12,
     fontWeight: '600',
   },
-  previewStats: {
+  previewPrice: {
+    color: palette.primary2,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  previewMetaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 8,
+    marginBottom: 10,
   },
-  previewStat: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minWidth: 70,
+  previewMetaPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: palette.surface,
+    flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: palette.border,
+    gap: 6,
   },
-  previewStatValue: {
-    color: palette.text,
-    fontSize: 13,
-    fontWeight: '900',
-    marginBottom: 4,
-  },
-  previewStatLabel: {
+  previewMetaLabel: {
     color: palette.textMuted,
     fontSize: 11,
     fontWeight: '700',
   },
-
-  uploadButton: {
-    minHeight: 56,
-    borderRadius: 16,
-    backgroundColor: palette.primary2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  uploadButtonDisabled: {
-    opacity: 0.5,
-  },
-  uploadButtonText: {
-    color: '#fff',
-    fontSize: 15,
+  previewMetaValue: {
+    color: palette.text,
+    fontSize: 11,
     fontWeight: '900',
+  },
+  previewSupplier: {
+    color: palette.textSoft,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+  bottomSpace: {
+    height: 20,
   },
 });
