@@ -1,194 +1,121 @@
-# RiskLens Food OS
+# RiskLens
 
-RiskLens Food OS is a food retail intelligence platform built for grocery stores, minimarkets, food distributors, and inventory-driven food businesses.
+RiskLens is a smart inventory and risk analysis system designed for small and medium food and drink markets.
 
-Instead of showing only raw product data, the app helps businesses understand:
+The goal of the project is to help businesses understand their stock, expiry risks, product costs, profit potential, and supplier data through a simple and clear dashboard.
 
-- which products are close to expiry
-- which products are low on stock
-- which products have weak margins
-- which items have the highest operational risk
-- what actions should be taken next
-- how alerts and recommendations affect the business
+## Project Overview
 
-The current version focuses on food products only.
+Food and drink markets deal with many challenges such as expiring products, low stock, pricing issues, and supplier management. RiskLens solves this by allowing users to upload product data and automatically analyze it.
 
-## Core idea
+Instead of manually checking products, the system highlights the most important problems so the business can react quickly.
 
-RiskLens turns daily inventory data into practical operational intelligence.
+## Main Features
 
-A business can upload food product data through CSV, store everything in Supabase, and then use the app to:
+- User authentication system
+- Product dashboard
+- CSV file upload
+- Required column validation
+- Low stock detection
+- Expiry risk detection
+- Inventory value calculation
+- Profit and margin calculation
+- Supplier tracking
+- Clean and mobile-friendly UI
 
-- monitor stock health
-- reduce waste exposure
-- detect expiry pressure
-- review pricing and margin issues
-- analyze risky categories and suppliers
-- generate operational recommendations
+## CSV Format
 
-## Current features
+The system requires a CSV file with the following columns:
 
-### Dashboard
-The dashboard provides a business overview with:
+name,stock_quantity,min_stock_level,cost_price,expiry_date,supplier_name
 
-- total tracked products
-- low stock products
-- near expiry products
-- waste pressure
-- margin health
-- inventory value
-- recommendation opportunities
-- supplier and category pressure summaries
+Example:
 
-### CSV Upload
-The upload flow supports:
+name,stock_quantity,min_stock_level,cost_price,expiry_date,supplier_name  
+Milk 1L,18,15,0.90,2026-04-26,DairyFresh  
+Bread White,9,20,0.50,2026-04-25,Bakery Local  
+Water 1.5L,120,40,0.35,2027-12-31,AquaPure  
 
-- CSV file selection
-- CSV validation
-- row preview before insert
-- insert into `food_products`
-- import log creation in `food_import_logs`
-- automatic creation of alerts in `food_alerts`
-- automatic creation of recommendations in `food_recommendations`
+## How It Works
 
-### Products page
-The products page supports:
+The user uploads a CSV file containing product data.
 
-- product listing
-- search by product, category, SKU, barcode, or supplier
-- filters for low stock, near expiry, weak margin, and high risk
-- product delete action
-- sorted risk-first browsing
+The system validates the file to ensure all required columns exist.
 
-### Product details page
-Each product has its own detail view with:
+After validation, the data is processed and displayed in the dashboard.
 
-- stock and minimum stock
-- selling price and cost price
-- estimated margin
-- expiry status
-- supplier information
-- related alerts
-- related recommendations
+The system analyzes each product and highlights risks such as low stock and expiry dates.
 
-### Edit product page
-Products can be edited directly in the app:
+## Core Calculations
 
-- name
-- category
-- supplier
-- SKU
-- barcode
-- stock quantity
-- minimum stock level
-- selling price
-- cost price
-- expiry date
-- status
+Inventory Value  
+Inventory Value = Stock Quantity × Cost Price
 
-### Insights page
-The insights page summarizes business intelligence such as:
+Margin  
+Margin = Selling Price − Cost Price
 
-- category pressure
-- supplier risk
-- alert severity breakdown
-- recommendation mix
-- top opportunity items
-- business interpretation summary
+Margin Percentage  
+Margin % = ((Selling Price − Cost Price) / Selling Price) × 100
 
-## Tech stack
+Revenue  
+Revenue = Stock Quantity × Selling Price
 
-- Expo
+Total Profit  
+Total Profit = (Selling Price − Cost Price) × Stock Quantity
+
+Low Stock Logic  
+If Stock Quantity < Minimum Stock Level → Low Stock Risk
+
+Expiry Calculation  
+Days Left = Expiry Date − Today
+
+Risk Levels  
+0–3 days → High Risk  
+4–7 days → Medium Risk  
+More than 7 days → Safe  
+
+## Tech Stack
+
 - React Native
-- Expo Router
+- Expo
 - TypeScript
 - Supabase
-- PapaParse
-- Expo Document Picker
+- CSV parsing
+- Dashboard-based UI
 
-## Database structure
+## Architecture
 
-The current implementation uses these core tables:
+CSV Upload → Validation → Data Processing → Database → Dashboard → Risk Analysis
 
-- `profiles`
-- `food_products`
-- `food_alerts`
-- `food_recommendations`
-- `food_import_logs`
+## Current Progress
 
-### Main table purpose
+We have successfully built the main dashboard, implemented CSV upload, added validation for required columns, and displayed product data with basic risk analysis.
 
-#### `profiles`
-Stores user information such as:
+The system already works with real data and shows useful insights for businesses.
 
-- full name
-- business name
-- email
-- role
+## Challenges
 
-#### `food_products`
-Stores product inventory fields such as:
+- Handling different CSV formats and missing data
+- Managing authentication and sessions
+- Designing a simple and clean UI
+- Converting raw data into useful insights
+- Keeping the project realistic for real businesses
 
-- name
-- category
-- sku
-- barcode
-- stock quantity
-- minimum stock level
-- selling price
-- cost price
-- expiry date
-- supplier name
-- status
+## Next Steps
 
-#### `food_alerts`
-Stores generated business alerts, such as:
+- Improve dashboard with charts and analytics
+- Add automatic alerts for expiry and low stock
+- Implement supplier performance tracking
+- Add demand and risk prediction
+- Improve CSV templates and error handling
+- Optimize performance and testing
 
-- low stock alerts
-- expiry alerts
-- pricing alerts
-- compliance alerts
+## Future Vision
 
-#### `food_recommendations`
-Stores suggested actions, such as:
+RiskLens aims to become a smart assistant for food and drink markets.
 
-- discount
-- restock
-- price up
-- price down
+The goal is to help businesses reduce waste, avoid stock problems, and improve profitability by providing clear and actionable insights.
 
-#### `food_import_logs`
-Stores CSV upload history.
+## Team Focus
 
-## Business logic currently implemented
-
-The system currently generates operational intelligence using simple rules.
-
-### Alert generation examples
-
-- low stock when stock is at or below minimum level
-- expiry alerts when a product is near expiry
-- weak margin alerts when margin is too low
-- compliance-style alerts when product fields are missing
-
-### Recommendation generation examples
-
-- discount recommendation for items close to expiry with enough stock to clear
-- restock recommendation for low-stock items
-- price-up recommendation for low-margin products
-- price-down recommendation for products that should move faster before expiry
-
-## Project structure
-
-```bash
-app/
-  (tabs)/
-    index.tsx           # dashboard
-    upload.tsx          # CSV upload page
-    products.tsx        # products list
-    explore.tsx         # insights page
-  product-details.tsx   # single product details
-  edit-product.tsx      # edit product form
-
-lib/
-  supabase.ts           # Supabase client
+This project focuses on real functionality, clear results, teamwork, and solving real-world business problems.
