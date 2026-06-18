@@ -11,37 +11,37 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as DocumentPicker from 'expo-document-picker';
-import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import AppSidebar from '../../components/appsidebar';
 
 const palette = {
-  bg: '#F5F7F3',
+  bg: '#F4F7FB',
   surface: '#FFFFFF',
-  surfaceSoft: '#EEF3EC',
-  surfaceSoft2: '#E6EEE5',
-  border: '#D7E1D3',
-  borderStrong: '#C7D4C3',
+  surfaceSoft: '#EEF3FA',
+  surfaceSoft2: '#E5ECF6',
+  border: '#D9E2F1',
+  borderStrong: '#CAD6E8',
 
-  text: '#132118',
-  textSoft: '#425345',
-  textMuted: '#728173',
+  text: '#162033',
+  textSoft: '#42516B',
+  textMuted: '#738199',
 
-  primary: '#183C2A',
-  primary2: '#24583D',
-  primary3: '#2F7A51',
-  accent: '#6FD08C',
+  primary: '#5AA9FF',
+  primary2: '#7C5CFF',
+  primary3: '#4BE1EC',
+  accent: '#42D392',
 
-  danger: '#D94F4F',
-  warning: '#C98A1F',
-  success: '#2D8A57',
-  info: '#4475D9',
+  danger: '#FF6B7A',
+  warning: '#F7B955',
+  success: '#42D392',
+  info: '#5AA9FF',
 
-  redSoft: '#FFF1F1',
-  yellowSoft: '#FFF8E8',
-  greenSoft: '#EDF8F0',
-  blueSoft: '#EDF3FF',
+  redSoft: '#FFF1F3',
+  yellowSoft: '#FFF7E5',
+  greenSoft: '#EAFBF3',
+  blueSoft: '#EAF4FF',
 };
 
 const REQUIRED_COLUMNS = [
@@ -53,18 +53,21 @@ const REQUIRED_COLUMNS = [
   'supplier_name',
 ];
 
-const OPTIONAL_COLUMNS = [
-  'category',
-  'sku',
-  'barcode',
-  'selling_price',
-  'status',
-];
+function dateFromToday(daysAhead: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysAhead);
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
 
 const csvTemplate = `name,category,sku,barcode,stock_quantity,min_stock_level,cost_price,selling_price,expiry_date,supplier_name,status
-Milk 1L,Dairy,MLK-001,1234567890123,25,10,0.80,1.20,2026-05-03,DairyFresh,active
-Bread White,Bakery,BRD-010,2234567890123,12,8,0.45,0.90,2026-04-26,BakeHouse,active
-Apple Juice 1L,Drinks,AJ-100,3234567890123,7,12,0.95,1.45,2026-05-10,FruitCo,active`;
+Milk 1L,Dairy,MLK-001,1234567890123,25,10,0.80,1.20,${dateFromToday(5)},DairyFresh,active
+Bread White,Bakery,BRD-010,2234567890123,12,8,0.45,0.90,${dateFromToday(14)},BakeHouse,active
+Apple Juice 1L,Drinks,AJ-100,3234567890123,7,12,0.95,1.45,${dateFromToday(30)},FruitCo,active`;
 
 type ParsedRow = {
   name: string;
@@ -357,7 +360,6 @@ function buildRecommendationsForRow(row: ParsedRow): FoodRecommendationInsert[] 
 
 export default function UploadScreen() {
   const [fileName, setFileName] = useState('');
-  const [csvText, setCsvText] = useState('');
   const [headers, setHeaders] = useState<string[]>([]);
   const [rawRows, setRawRows] = useState<Record<string, string>[]>([]);
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
@@ -389,7 +391,6 @@ export default function UploadScreen() {
 
   const resetAll = () => {
     setFileName('');
-    setCsvText('');
     setHeaders([]);
     setRawRows([]);
     setParsedRows([]);
@@ -468,7 +469,6 @@ export default function UploadScreen() {
       const response = await fetch(asset.uri);
       const text = await response.text();
 
-      setCsvText(text);
       parseCsvText(text);
     } catch (error: any) {
       Alert.alert('CSV Error', error?.message || 'Failed to open CSV file.');
@@ -579,7 +579,7 @@ export default function UploadScreen() {
       showsVerticalScrollIndicator={false}
     >
         <LinearGradient
-          colors={['#163728', '#1C4630', '#24583D']}
+          colors={['#5AA9FF', '#6D7CFF', '#4BE1EC']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.hero}
@@ -932,7 +932,7 @@ heroMenuButton: {
     color: '#fff',
     fontSize: 20,
     fontWeight: '900',
-    letterSpacing: -0.4,
+    letterSpacing: 0,
   },
   heroSubtitle: {
     marginTop: 14,
@@ -952,7 +952,9 @@ heroMenuButton: {
   heroStatsRow: {
     marginTop: 18,
     borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.88)',
+    borderWidth: 1,
+    borderColor: palette.border,
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 14,
@@ -964,14 +966,14 @@ heroMenuButton: {
     justifyContent: 'center',
   },
   heroStatValue: {
-    color: '#fff',
+    color: palette.text,
     fontSize: 22,
     fontWeight: '900',
-    letterSpacing: -0.7,
+    letterSpacing: 0,
     marginBottom: 4,
   },
   heroStatLabel: {
-    color: 'rgba(255,255,255,0.72)',
+    color: palette.textMuted,
     fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
@@ -979,7 +981,7 @@ heroMenuButton: {
   heroStatDivider: {
     width: 1,
     height: 32,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: palette.borderStrong,
   },
 
   commandBar: {
@@ -1095,7 +1097,7 @@ heroMenuButton: {
     color: palette.text,
     fontSize: 18,
     fontWeight: '900',
-    letterSpacing: -0.3,
+    letterSpacing: 0,
   },
   panelSubtitle: {
     color: palette.textMuted,

@@ -18,34 +18,34 @@ import { supabase } from '../../lib/supabase';
 import AppSidebar from '../../components/appsidebar';
 
 const palette = {
-  bg: '#F5F7F3',
+  bg: '#F4F7FB',
   surface: '#FFFFFF',
-  surfaceSoft: '#EEF3EC',
-  surfaceSoft2: '#E6EEE5',
-  border: '#D7E1D3',
-  borderStrong: '#C7D4C3',
+  surfaceSoft: '#EEF3FA',
+  surfaceSoft2: '#E5ECF6',
+  border: '#D9E2F1',
+  borderStrong: '#CAD6E8',
 
-  text: '#132118',
-  textSoft: '#425345',
-  textMuted: '#728173',
+  text: '#162033',
+  textSoft: '#42516B',
+  textMuted: '#738199',
 
-  primary: '#183C2A',
-  primary2: '#24583D',
-  primary3: '#2F7A51',
+  primary: '#5AA9FF',
+  primary2: '#7C5CFF',
+  primary3: '#4BE1EC',
 
-  danger: '#D94F4F',
-  warning: '#C98A1F',
-  success: '#2D8A57',
-  info: '#4475D9',
-  purple: '#8B5CF6',
-  cyan: '#06B6D4',
+  danger: '#FF6B7A',
+  warning: '#F7B955',
+  success: '#42D392',
+  info: '#5AA9FF',
+  purple: '#A78BFA',
+  cyan: '#4BE1EC',
 
-  redSoft: '#FFF1F1',
-  yellowSoft: '#FFF8E8',
-  greenSoft: '#EDF8F0',
-  blueSoft: '#EDF3FF',
+  redSoft: '#FFF1F3',
+  yellowSoft: '#FFF7E5',
+  greenSoft: '#EAFBF3',
+  blueSoft: '#EAF4FF',
   purpleSoft: '#F3EEFF',
-  cyanSoft: '#E9FCFF',
+  cyanSoft: '#E7FBFD',
 };
 
 type ProductRow = {
@@ -384,7 +384,7 @@ export default function WasteExpiryScreen() {
           }
         >
           <LinearGradient
-            colors={['#163728', '#1C4630', '#24583D']}
+            colors={['#5AA9FF', '#6D7CFF', '#4BE1EC']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.hero}
@@ -761,7 +761,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 26,
     fontWeight: '900',
-    letterSpacing: -0.5,
+    letterSpacing: 0,
   },
   heroSubtitle: {
     marginTop: 14,
@@ -772,8 +772,10 @@ const styles = StyleSheet.create({
   },
   heroInsightBand: {
     marginTop: 18,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.88)',
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -783,21 +785,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   heroInsightLabel: {
-    color: 'rgba(255,255,255,0.68)',
+    color: palette.textMuted,
     fontSize: 11,
     fontWeight: '700',
     marginBottom: 4,
     textAlign: 'center',
   },
   heroInsightValue: {
-    color: '#fff',
+    color: palette.text,
     fontSize: 18,
     fontWeight: '900',
   },
   heroDivider: {
     width: 1,
     height: 32,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: palette.borderStrong,
     marginHorizontal: 8,
   },
 
@@ -818,7 +820,7 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '900',
     marginBottom: 4,
-    letterSpacing: -0.4,
+    letterSpacing: 0,
   },
   sectionSubtitle: {
     color: palette.textMuted,
@@ -854,7 +856,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '900',
     marginBottom: 4,
-    letterSpacing: -0.5,
+    letterSpacing: 0,
   },
   summaryTitle: {
     color: palette.textSoft,

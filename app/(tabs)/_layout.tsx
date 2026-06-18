@@ -8,16 +8,34 @@ export default function TabsLayout() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
+    let active = true;
+
     const checkAuth = async () => {
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      setIsLoggedIn(!!user);
+      if (!active) return;
+
+      setIsLoggedIn(!!session);
       setChecking(false);
     };
 
     checkAuth();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event: string, session: any) => {
+      if (!active) return;
+
+      setIsLoggedIn(!!session);
+      setChecking(false);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   if (checking) {

@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Pressable,
   RefreshControl,
@@ -23,35 +22,35 @@ const { width } = Dimensions.get('window');
 const SIDEBAR_WIDTH = Math.min(320, width * 0.82);
 
 const palette = {
-  bg: '#F5F7F3',
+  bg: '#F4F7FB',
   surface: '#FFFFFF',
-  surfaceSoft: '#EEF3EC',
-  surfaceSoft2: '#E6EEE5',
-  border: '#D7E1D3',
-  borderStrong: '#C7D4C3',
+  surfaceSoft: '#EEF3FA',
+  surfaceSoft2: '#E5ECF6',
+  border: '#D9E2F1',
+  borderStrong: '#CAD6E8',
 
-  text: '#132118',
-  textSoft: '#425345',
-  textMuted: '#728173',
+  text: '#162033',
+  textSoft: '#42516B',
+  textMuted: '#738199',
 
-  primary: '#183C2A',
-  primary2: '#24583D',
-  primary3: '#2F7A51',
-  accent: '#6FD08C',
+  primary: '#5AA9FF',
+  primary2: '#7C5CFF',
+  primary3: '#4BE1EC',
+  accent: '#42D392',
 
-  danger: '#D94F4F',
-  warning: '#C98A1F',
-  success: '#2D8A57',
-  info: '#4475D9',
-  purple: '#8B5CF6',
-  cyan: '#06B6D4',
+  danger: '#FF6B7A',
+  warning: '#F7B955',
+  success: '#42D392',
+  info: '#5AA9FF',
+  purple: '#A78BFA',
+  cyan: '#4BE1EC',
 
-  redSoft: '#FFF1F1',
-  yellowSoft: '#FFF8E8',
-  greenSoft: '#EDF8F0',
-  blueSoft: '#EDF3FF',
+  redSoft: '#FFF1F3',
+  yellowSoft: '#FFF7E5',
+  greenSoft: '#EAFBF3',
+  blueSoft: '#EAF4FF',
   purpleSoft: '#F3EEFF',
-  cyanSoft: '#E9FCFF',
+  cyanSoft: '#E7FBFD',
 };
 
 type ProductRow = {
@@ -94,10 +93,6 @@ type SupplierRollup = {
 
 function safeNumber(value?: number | null) {
   return Number(value || 0);
-}
-
-function formatCurrency(value?: number | null) {
-  return `€${safeNumber(value).toFixed(2)}`;
 }
 
 function formatCompactCurrency(value?: number | null) {
@@ -566,10 +561,10 @@ export default function DecisionCenterScreen() {
     outputRange: [0, 0.32],
   });
 
-  const openFuturePage = (name: string) => {
+  const goFromSidebar = (path: string) => {
     closeSidebar();
     setTimeout(() => {
-      Alert.alert('Coming soon', `${name} is the next premium page to build.`);
+      router.push(path as never);
     }, 180);
   };
 
@@ -599,7 +594,7 @@ export default function DecisionCenterScreen() {
           }
         >
           <LinearGradient
-            colors={['#163728', '#1C4630', '#24583D']}
+            colors={['#5AA9FF', '#6D7CFF', '#4BE1EC']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.hero}
@@ -902,7 +897,7 @@ export default function DecisionCenterScreen() {
               ]}
             >
               <LinearGradient
-                colors={['#163728', '#1C4630', '#24583D']}
+                colors={['#5AA9FF', '#6D7CFF', '#4BE1EC']}
                 style={styles.sidebarHeader}
               >
                 <View style={styles.sidebarBrandIcon}>
@@ -926,54 +921,42 @@ export default function DecisionCenterScreen() {
                 <SidebarItem
                   icon="grid-outline"
                   label="Dashboard"
-                  onPress={() => {
-                    closeSidebar();
-                    setTimeout(() => router.push('/(tabs)'), 180);
-                  }}
+                  onPress={() => goFromSidebar('/(tabs)')}
                 />
                 <SidebarItem
                   icon="basket-outline"
                   label="Products"
-                  onPress={() => {
-                    closeSidebar();
-                    setTimeout(() => router.push('/(tabs)/products'), 180);
-                  }}
+                  onPress={() => goFromSidebar('/(tabs)/products')}
                 />
                 <SidebarItem
                   icon="cloud-upload-outline"
                   label="Upload CSV"
-                  onPress={() => {
-                    closeSidebar();
-                    setTimeout(() => router.push('/(tabs)/upload'), 180);
-                  }}
+                  onPress={() => goFromSidebar('/(tabs)/upload')}
                 />
                 <SidebarItem
                   icon="analytics-outline"
                   label="Insights"
-                  onPress={() => {
-                    closeSidebar();
-                    setTimeout(() => router.push('/(tabs)/explore'), 180);
-                  }}
+                  onPress={() => goFromSidebar('/(tabs)/explore')}
                 />
                 <SidebarItem
                   icon="notifications-outline"
                   label="Alerts Center"
-                  onPress={() => openFuturePage('Alerts Center')}
+                  onPress={() => goFromSidebar('/(tabs)/alerts-center')}
                 />
                 <SidebarItem
                   icon="sparkles-outline"
                   label="Recommendations"
-                  onPress={() => openFuturePage('Recommendations Center')}
+                  onPress={() => goFromSidebar('/(tabs)/recommendations-center')}
                 />
                 <SidebarItem
                   icon="business-outline"
                   label="Supplier Performance"
-                  onPress={() => openFuturePage('Supplier Performance')}
+                  onPress={() => goFromSidebar('/(tabs)/supplier-performance')}
                 />
                 <SidebarItem
                   icon="trash-outline"
                   label="Waste & Expiry"
-                  onPress={() => openFuturePage('Waste & Expiry')}
+                  onPress={() => goFromSidebar('/(tabs)/waste-expiry')}
                 />
               </ScrollView>
             </Animated.View>
@@ -1058,7 +1041,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 28,
     fontWeight: '900',
-    letterSpacing: -0.6,
+    letterSpacing: 0,
     marginBottom: 5,
   },
   heroSubtitle: {
@@ -1069,8 +1052,10 @@ const styles = StyleSheet.create({
   },
   heroInsightBand: {
     marginTop: 18,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.88)',
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1080,21 +1065,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   heroInsightLabel: {
-    color: 'rgba(255,255,255,0.68)',
+    color: palette.textMuted,
     fontSize: 11,
     fontWeight: '700',
     marginBottom: 4,
     textAlign: 'center',
   },
   heroInsightValue: {
-    color: '#fff',
+    color: palette.text,
     fontSize: 18,
     fontWeight: '900',
   },
   heroDivider: {
     width: 1,
     height: 32,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: palette.borderStrong,
     marginHorizontal: 8,
   },
 
@@ -1114,7 +1099,7 @@ const styles = StyleSheet.create({
     color: palette.text,
     fontSize: 22,
     fontWeight: '900',
-    letterSpacing: -0.4,
+    letterSpacing: 0,
   },
   sectionSubtitle: {
     color: palette.textMuted,

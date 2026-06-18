@@ -19,9 +19,12 @@ const SIDEBAR_WIDTH = Math.min(320, width * 0.82);
 
 const palette = {
   surface: '#FFFFFF',
-  surfaceSoft: '#EEF3EC',
-  textSoft: '#425345',
-  primary2: '#24583D',
+  surfaceSoft: '#EEF3FA',
+  border: '#D9E2F1',
+  danger: '#FF6B7A',
+  dangerSoft: '#FFF1F3',
+  textSoft: '#42516B',
+  primary2: '#7C5CFF',
 };
 
 type SidebarRoute =
@@ -108,8 +111,9 @@ export default function AppSidebar({ visible, onClose, active }: Props) {
       await supabase.auth.signOut();
       onClose();
       router.replace('/login');
-    } catch (error) {
-      console.log('Logout error:', error);
+    } catch {
+      onClose();
+      router.replace('/login');
     }
   };
 
@@ -137,7 +141,7 @@ export default function AppSidebar({ visible, onClose, active }: Props) {
         ]}
       >
         <LinearGradient
-          colors={['#163728', '#1C4630', '#24583D']}
+          colors={['#5AA9FF', '#6D7CFF', '#4BE1EC']}
           style={styles.sidebarHeader}
         >
           <View style={styles.sidebarBrandIcon}>
@@ -233,18 +237,18 @@ export default function AppSidebar({ visible, onClose, active }: Props) {
             onPress={() => go('/(tabs)/waste-expiry')}
           />
           <SidebarItem
-  icon="school-outline"
-  label="Tutorial"
-  active={active === 'tutorial'}
-  onPress={() => go('/(tabs)/tutorial')}
-/>
+            icon="school-outline"
+            label="Tutorial"
+            active={active === 'tutorial'}
+            onPress={() => go('/(tabs)/tutorial')}
+          />
 
           <TouchableOpacity
             style={styles.logoutButton}
             onPress={handleLogout}
             activeOpacity={0.9}
           >
-            <Ionicons name="log-out-outline" size={18} color="#D94F4F" />
+            <Ionicons name="log-out-outline" size={18} color={palette.danger} />
             <Text style={styles.logoutButtonText}>Logout</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -258,9 +262,9 @@ const styles = StyleSheet.create({
     marginTop: 18,
     minHeight: 50,
     borderRadius: 16,
-    backgroundColor: '#FFF1F1',
+    backgroundColor: palette.dangerSoft,
     borderWidth: 1,
-    borderColor: '#F1CACA',
+    borderColor: 'rgba(255,107,122,0.24)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -268,7 +272,7 @@ const styles = StyleSheet.create({
   },
 
   logoutButtonText: {
-    color: '#D94F4F',
+    color: palette.danger,
     fontSize: 14,
     fontWeight: '900',
   },
@@ -287,6 +291,8 @@ const styles = StyleSheet.create({
     left: 0,
     width: SIDEBAR_WIDTH,
     backgroundColor: palette.surface,
+    borderRightWidth: 1,
+    borderRightColor: palette.border,
     borderTopRightRadius: 24,
     borderBottomRightRadius: 24,
     overflow: 'hidden',
@@ -336,6 +342,8 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 14,
     backgroundColor: palette.surfaceSoft,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
   sidebarItemActive: {
     backgroundColor: palette.primary2,

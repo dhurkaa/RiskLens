@@ -1,7 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -9,7 +8,6 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -18,26 +16,28 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { signIn } from '../src/services/authService';
+import * as Haptics from 'expo-haptics';
+import { getFriendlyAuthErrorMessage, signIn } from '../src/services/authService';
+import { DEMO_ACCOUNT, supabase } from '../lib/supabase';
 
 const colors = {
-  bg: '#07111F',
-  bg2: '#0B1728',
-  card: 'rgba(17, 28, 48, 0.92)',
-  cardBorder: 'rgba(255,255,255,0.08)',
+  bg: '#F4F7FB',
+  bg2: '#EAF1FB',
+  card: '#FFFFFF',
+  cardBorder: '#D9E2F1',
   primary: '#5AA9FF',
   primary2: '#7C5CFF',
   cyan: '#4BE1EC',
   green: '#42D392',
   red: '#FF6B7A',
-  text: '#EEF4FF',
-  textSoft: '#B8C7E3',
-  textMuted: '#7F93B7',
-  inputBg: 'rgba(255,255,255,0.05)',
-  inputBorder: 'rgba(255,255,255,0.10)',
+  text: '#162033',
+  textSoft: '#42516B',
+  textMuted: '#738199',
+  inputBg: '#F0F5FB',
+  inputBorder: '#D9E2F1',
   inputFocus: 'rgba(90,169,255,0.55)',
-  white10: 'rgba(255,255,255,0.10)',
-  white06: 'rgba(255,255,255,0.06)',
+  white10: 'rgba(90,169,255,0.14)',
+  white06: 'rgba(90,169,255,0.08)',
 };
 
 export default function LoginScreen() {
@@ -46,37 +46,170 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [focusedField, setFocusedField] = useState<'email' | 'password' | null>(null);
+  const [touched, setTouched] = useState({
+    email: false,
+    password: false,
+  });
+  const [message, setMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
+
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanPassword = password;
+  const emailLooksValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail);
 
   const formValid = useMemo(() => {
-    return email.trim().length > 4 && password.trim().length >= 6;
-  }, [email, password]);
+    return emailLooksValid && cleanPassword.trim().length >= 6;
+  }, [cleanPassword, emailLooksValid]);
+
+  const errors = useMemo(() => {
+    return {
+      email:
+        touched.email && !cleanEmail
+          ? 'Please enter your email address.'
+          : touched.email && !emailLooksValid
+          ? 'Please enter a valid email address.'
+          : '',
+      password:
+        touched.password && !cleanPassword.trim()
+          ? 'Please enter your password.'
+          : touched.password && cleanPassword.trim().length < 6
+          ? 'Password must be at least 6 characters.'
+          : '',
+    };
+  }, [cleanEmail, cleanPassword, emailLooksValid, touched.email, touched.password]);
+
+  useEffect(() => {
+    let active = true;
+
+    const syncSession = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (active && session) {
+        router.replace('/(tabs)');
+      }
+    };
+
+    syncSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event: string, session: any) => {
+      if (session) {
+        router.replace('/(tabs)');
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [router]);
 
   const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert('Missing information', 'Please enter your email and password.');
+    setTouched({ email: true, password: true });
+    setMessage(null);
+
+    if (!formValid) {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setMessage({
+        type: 'error',
+        text: 'Please fix the highlighted fields before signing in.',
+      });
       return;
     }
 
     try {
       setLoading(true);
-      await signIn(email.trim(), password);
+      await signIn(cleanEmail, cleanPassword);
       router.replace('/(tabs)');
     } catch (error: any) {
-      Alert.alert('Login failed', error?.message || 'Something went wrong while signing in.');
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setMessage({
+        type: 'error',
+        text: getFriendlyAuthErrorMessage(error, 'login'),
+      });
+      setTouched({ email: true, password: true });
     } finally {
       setLoading(false);
     }
   };
 
+  const handleDemoLogin = async () => {
+    if (loading) return;
+
+    const demoEmail = DEMO_ACCOUNT.email;
+    const demoPassword = DEMO_ACCOUNT.password;
+
+    setEmail(demoEmail);
+    setPassword(demoPassword);
+    setMessage(null);
+
+    try {
+      setLoading(true);
+      await signIn(demoEmail, demoPassword);
+      router.replace('/(tabs)');
+    } catch (error: any) {
+      setMessage({
+        type: 'error',
+        text: getFriendlyAuthErrorMessage(error, 'login'),
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      typeof window === 'undefined' ||
+      !window.location.search.includes('demo=1')
+    ) {
+      return;
+    }
+
+    let active = true;
+
+    const loginDemoWorkspace = async () => {
+      const demoEmail = DEMO_ACCOUNT.email;
+      const demoPassword = DEMO_ACCOUNT.password;
+
+      setEmail(demoEmail);
+      setPassword(demoPassword);
+
+      try {
+        setLoading(true);
+        await signIn(demoEmail, demoPassword);
+        if (active) router.replace('/(tabs)');
+      } catch (error: any) {
+        if (active) {
+          setMessage({
+            type: 'error',
+            text: getFriendlyAuthErrorMessage(error, 'login'),
+          });
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    loginDemoWorkspace();
+
+    return () => {
+      active = false;
+    };
+  }, [router]);
+
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
+      <StatusBar barStyle="dark-content" backgroundColor={colors.bg} />
 
       <LinearGradient
-        colors={[colors.bg, colors.bg2, '#08121E']}
+        colors={[colors.bg, colors.bg2, '#F8FBFF']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -131,9 +264,38 @@ export default function LoginScreen() {
               Access your dashboard, CSV uploads, AI insights, and pricing recommendations.
             </Text>
 
+            {message ? (
+              <View
+                style={[
+                  styles.messageBox,
+                  message.type === 'success' ? styles.successBox : styles.errorBox,
+                ]}
+              >
+                <Ionicons
+                  name={
+                    message.type === 'success'
+                      ? 'checkmark-circle-outline'
+                      : 'alert-circle-outline'
+                  }
+                  size={18}
+                  color={message.type === 'success' ? colors.green : colors.red}
+                  style={styles.messageIcon}
+                />
+                <Text
+                  style={[
+                    styles.messageText,
+                    { color: message.type === 'success' ? colors.green : colors.red },
+                  ]}
+                >
+                  {message.text}
+                </Text>
+              </View>
+            ) : null}
+
             <View
               style={[
                 styles.inputWrap,
+                errors.email ? styles.inputWrapError : null,
                 focusedField === 'email' && styles.inputWrapFocused,
               ]}
             >
@@ -145,9 +307,15 @@ export default function LoginScreen() {
               />
               <TextInput
                 value={email}
-                onChangeText={setEmail}
+                onChangeText={(value) => {
+                  setEmail(value);
+                  if (message) setMessage(null);
+                }}
                 onFocus={() => setFocusedField('email')}
-                onBlur={() => setFocusedField(null)}
+                onBlur={() => {
+                  setFocusedField(null);
+                  setTouched((prev) => ({ ...prev, email: true }));
+                }}
                 placeholder="Business email"
                 placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
@@ -156,10 +324,12 @@ export default function LoginScreen() {
                 style={styles.input}
               />
             </View>
+            {errors.email ? <Text style={styles.errorText}>{errors.email}</Text> : null}
 
             <View
               style={[
                 styles.inputWrap,
+                errors.password ? styles.inputWrapError : null,
                 focusedField === 'password' && styles.inputWrapFocused,
               ]}
             >
@@ -171,9 +341,15 @@ export default function LoginScreen() {
               />
               <TextInput
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={(value) => {
+                  setPassword(value);
+                  if (message) setMessage(null);
+                }}
                 onFocus={() => setFocusedField('password')}
-                onBlur={() => setFocusedField(null)}
+                onBlur={() => {
+                  setFocusedField(null);
+                  setTouched((prev) => ({ ...prev, password: true }));
+                }}
                 placeholder="Password"
                 placeholderTextColor={colors.textMuted}
                 secureTextEntry={!showPassword}
@@ -192,21 +368,13 @@ export default function LoginScreen() {
                 />
               </Pressable>
             </View>
+            {errors.password ? <Text style={styles.errorText}>{errors.password}</Text> : null}
 
-            <View style={styles.optionsRow}>
-              <View style={styles.rememberRow}>
-                <Switch
-                  value={rememberMe}
-                  onValueChange={setRememberMe}
-                  trackColor={{ false: '#334866', true: '#2E62AF' }}
-                  thumbColor="#fff"
-                />
-                <Text style={styles.rememberText}>Remember me</Text>
-              </View>
-
-              <TouchableOpacity onPress={() => Alert.alert('Coming soon', 'Forgot password will be added next.')}>
-                <Text style={styles.forgotText}>Forgot password?</Text>
-              </TouchableOpacity>
+            <View style={styles.sessionNoteRow}>
+              <Ionicons name="shield-checkmark-outline" size={16} color={colors.primary} />
+              <Text style={styles.sessionNoteText}>
+                Your secure session stays active until you log out.
+              </Text>
             </View>
 
             <TouchableOpacity
@@ -221,7 +389,7 @@ export default function LoginScreen() {
               <LinearGradient
                 colors={
                   !formValid || loading
-                    ? ['#36516F', '#36516F']
+                    ? ['#CBD5E1', '#CBD5E1']
                     : [colors.primary, colors.primary2]
                 }
                 start={{ x: 0, y: 0 }}
@@ -237,6 +405,24 @@ export default function LoginScreen() {
                   </>
                 )}
               </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={handleDemoLogin}
+              disabled={loading}
+              style={styles.demoButton}
+            >
+              <View style={styles.demoIcon}>
+                <Ionicons name="rocket-outline" size={18} color={colors.primary2} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.demoTitle}>Use demo workspace</Text>
+                <Text style={styles.demoSubtitle}>
+                  Preloaded products, alerts, recommendations, and pricing history.
+                </Text>
+              </View>
+              <Ionicons name="arrow-forward" size={18} color={colors.primary2} />
             </TouchableOpacity>
 
             <View style={styles.dividerRow}>
@@ -349,7 +535,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 22,
     fontWeight: '800',
-    letterSpacing: -0.4,
+    letterSpacing: 0,
   },
   brandTag: {
     color: colors.textMuted,
@@ -360,7 +546,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 34,
     fontWeight: '900',
-    letterSpacing: -1,
+    letterSpacing: 0,
     marginBottom: 10,
   },
   welcomeSubtitle: {
@@ -417,6 +603,33 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 22,
   },
+  messageBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+  },
+  successBox: {
+    backgroundColor: '#EAFBF3',
+    borderColor: 'rgba(22,160,105,0.24)',
+  },
+  errorBox: {
+    backgroundColor: '#FFF1F3',
+    borderColor: 'rgba(217,75,94,0.24)',
+  },
+  messageIcon: {
+    marginTop: 1,
+    marginRight: 8,
+  },
+  messageText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
   inputWrap: {
     position: 'relative',
     flexDirection: 'row',
@@ -427,6 +640,9 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     marginBottom: 14,
     minHeight: 58,
+  },
+  inputWrapError: {
+    borderColor: 'rgba(217,75,94,0.75)',
   },
   inputWrapFocused: {
     borderColor: colors.inputFocus,
@@ -447,6 +663,14 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingRight: 14,
   },
+  errorText: {
+    color: colors.red,
+    fontSize: 12,
+    marginTop: -6,
+    marginBottom: 10,
+    marginLeft: 2,
+    fontWeight: '600',
+  },
   eyeButton: {
     position: 'absolute',
     right: 14,
@@ -454,33 +678,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  optionsRow: {
+  sessionNoteRow: {
     marginTop: 4,
     marginBottom: 18,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
+    gap: 8,
   },
-  rememberRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  rememberText: {
+  sessionNoteText: {
     color: colors.textSoft,
     fontSize: 13,
-    marginLeft: 8,
     fontWeight: '600',
-  },
-  forgotText: {
-    color: colors.primary,
-    fontSize: 13,
-    fontWeight: '700',
+    flex: 1,
   },
   loginButton: {
     borderRadius: 18,
     overflow: 'hidden',
-    marginBottom: 22,
+    marginBottom: 12,
   },
   loginButtonDisabled: {
     opacity: 0.72,
@@ -496,6 +710,38 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '800',
+  },
+  demoButton: {
+    minHeight: 64,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.cardBorder,
+    backgroundColor: colors.white06,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    marginBottom: 22,
+  },
+  demoIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    backgroundColor: 'rgba(124,92,255,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  demoTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 3,
+  },
+  demoSubtitle: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
   },
   dividerRow: {
     flexDirection: 'row',

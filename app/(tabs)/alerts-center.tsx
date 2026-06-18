@@ -19,22 +19,22 @@ import AppSidebar from '../../components/appsidebar';
 
 
 const palette = {
-  bg: '#F5F7F3',
+  bg: '#F4F7FB',
   surface: '#FFFFFF',
-  surfaceSoft: '#EEF3EC',
-  border: '#D7E1D3',
-  text: '#132118',
-  textSoft: '#425345',
-  textMuted: '#728173',
-  primary2: '#24583D',
-  danger: '#D94F4F',
-  warning: '#C98A1F',
-  info: '#4475D9',
-  success: '#2D8A57',
-  redSoft: '#FFF1F1',
-  yellowSoft: '#FFF8E8',
-  blueSoft: '#EDF3FF',
-  greenSoft: '#EDF8F0',
+  surfaceSoft: '#EEF3FA',
+  border: '#D9E2F1',
+  text: '#162033',
+  textSoft: '#42516B',
+  textMuted: '#738199',
+  primary2: '#7C5CFF',
+  danger: '#FF6B7A',
+  warning: '#F7B955',
+  info: '#5AA9FF',
+  success: '#42D392',
+  redSoft: '#FFF1F3',
+  yellowSoft: '#FFF7E5',
+  blueSoft: '#EAF4FF',
+  greenSoft: '#EAFBF3',
 };
 
 type AlertRow = {
@@ -278,7 +278,7 @@ export default function AlertsCenterScreen() {
           }
         >
           <LinearGradient
-            colors={['#163728', '#1C4630', '#24583D']}
+            colors={['#5AA9FF', '#6D7CFF', '#4BE1EC']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.hero}
@@ -579,7 +579,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 26,
     fontWeight: '900',
-    letterSpacing: -0.5,
+    letterSpacing: 0,
     marginBottom: 5,
   },
   heroSubtitle: {
@@ -605,7 +605,7 @@ const styles = StyleSheet.create({
     color: palette.text,
     fontSize: 22,
     fontWeight: '900',
-    letterSpacing: -0.4,
+    letterSpacing: 0,
   },
   sectionSubtitle: {
     color: palette.textMuted,

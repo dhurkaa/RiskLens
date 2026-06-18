@@ -13,23 +13,23 @@ import { router } from 'expo-router';
 import AppSidebar from '../../components/appsidebar';
 
 const palette = {
-  bg: '#F5F7F3',
+  bg: '#F4F7FB',
   surface: '#FFFFFF',
-  surfaceSoft: '#EEF3EC',
-  border: '#D7E1D3',
-  text: '#132118',
-  textSoft: '#425345',
-  textMuted: '#728173',
-  primary2: '#24583D',
-  success: '#2D8A57',
-  warning: '#C98A1F',
-  danger: '#D94F4F',
-  info: '#4475D9',
-  purple: '#8B5CF6',
-  greenSoft: '#EDF8F0',
-  yellowSoft: '#FFF8E8',
-  redSoft: '#FFF1F1',
-  blueSoft: '#EDF3FF',
+  surfaceSoft: '#EEF3FA',
+  border: '#D9E2F1',
+  text: '#162033',
+  textSoft: '#42516B',
+  textMuted: '#738199',
+  primary2: '#7C5CFF',
+  success: '#42D392',
+  warning: '#F7B955',
+  danger: '#FF6B7A',
+  info: '#5AA9FF',
+  purple: '#A78BFA',
+  greenSoft: '#EAFBF3',
+  yellowSoft: '#FFF7E5',
+  redSoft: '#FFF1F3',
+  blueSoft: '#EAF4FF',
   purpleSoft: '#F3EEFF',
 };
 
@@ -109,7 +109,7 @@ export default function TutorialScreen() {
           showsVerticalScrollIndicator={false}
         >
           <LinearGradient
-            colors={['#163728', '#1C4630', '#24583D']}
+            colors={['#5AA9FF', '#6D7CFF', '#4BE1EC']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.hero}
@@ -356,7 +356,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 25,
     fontWeight: '900',
-    letterSpacing: -0.5,
+    letterSpacing: 0,
   },
   heroSubtitle: {
     marginTop: 16,
@@ -390,7 +390,7 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '900',
     marginBottom: 12,
-    letterSpacing: -0.4,
+    letterSpacing: 0,
   },
   stepsWrap: {
     gap: 12,

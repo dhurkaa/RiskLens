@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -16,22 +16,23 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../lib/supabase';
 import { router } from 'expo-router';
+import { getFriendlyAuthErrorMessage, signUp } from '../src/services/authService';
 
 const palette = {
-  bg: '#0B1016',
-  bg2: '#101826',
-  card: '#131C27',
-  input: '#192433',
-  border: 'rgba(255,255,255,0.08)',
-  text: '#F8FAFC',
-  textSoft: '#CBD5E1',
-  textMuted: '#94A3B8',
-  primary: '#3B82F6',
-  primary2: '#2563EB',
-  primarySoft: '#93C5FD',
-  success: '#10B981',
-  warning: '#F59E0B',
-  danger: '#EF4444',
+  bg: '#F4F7FB',
+  bg2: '#EAF1FB',
+  card: '#FFFFFF',
+  input: '#F0F5FB',
+  border: '#D9E2F1',
+  text: '#162033',
+  textSoft: '#42516B',
+  textMuted: '#738199',
+  primary: '#5AA9FF',
+  primary2: '#7C5CFF',
+  primarySoft: '#5AA9FF',
+  success: '#16A069',
+  warning: '#B7791F',
+  danger: '#D94B5E',
 };
 
 const isValidEmail = (value: string) =>
@@ -134,11 +135,36 @@ export default function SignupScreen() {
     /[0-9]/.test(cleanPassword) &&
     cleanPassword === cleanConfirmPassword;
 
-  const handleSignup = async () => {
-    setTimeout(() => {
-  router.replace('/login');
-}, 1200);
+  useEffect(() => {
+    let active = true;
 
+    const syncSession = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (active && session) {
+        router.replace('/(tabs)');
+      }
+    };
+
+    syncSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event: string, session: any) => {
+      if (session) {
+        router.replace('/(tabs)');
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const handleSignup = async () => {
     setTouched({
       fullName: true,
       company: true,
@@ -161,24 +187,23 @@ export default function SignupScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
-      const { error } = await supabase.auth.signUp({
+      const { session } = await signUp({
+        company: company.trim(),
         email: cleanEmail,
+        fullName: fullName.trim(),
         password: cleanPassword,
-        options: {
-          data: {
-            full_name: fullName.trim(),
-            company: company.trim(),
-          },
-        },
       });
-
-      if (error) throw error;
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
+      if (session) {
+        router.replace('/(tabs)');
+        return;
+      }
+
       setMessage({
         type: 'success',
-        text: 'Your account has been created. Check your email to verify your account before continuing.',
+        text: 'Your account has been created. You can continue to the app as soon as authentication becomes available for this account.',
       });
 
       setFullName('');
@@ -198,9 +223,7 @@ export default function SignupScreen() {
 
       setMessage({
         type: 'error',
-        text:
-          error?.message ||
-          'Something went wrong while creating your account. Please try again.',
+        text: getFriendlyAuthErrorMessage(error, 'signup'),
       });
     } finally {
       setLoading(false);
@@ -291,7 +314,7 @@ export default function SignupScreen() {
                       styles.messageText,
                       {
                         color:
-                          message.type === 'success' ? '#BBF7D0' : '#FECACA',
+                          message.type === 'success' ? palette.success : palette.danger,
                       },
                     ]}
                   >
@@ -465,13 +488,13 @@ export default function SignupScreen() {
                   (!formValid || loading) && styles.primaryButtonDisabled,
                 ]}
                 onPress={handleSignup}
-                disabled={!formValid || loading}
+                disabled={loading}
                 activeOpacity={0.9}
               >
                 <LinearGradient
                   colors={
                     !formValid || loading
-                      ? ['#334155', '#334155']
+                      ? ['#CBD5E1', '#CBD5E1']
                       : [palette.primary, palette.primary2]
                   }
                   start={{ x: 0, y: 0 }}
@@ -556,7 +579,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 36,
     marginBottom: 10,
-    letterSpacing: -0.6,
+    letterSpacing: 0,
   },
   subtitle: {
     color: palette.textSoft,
@@ -566,7 +589,7 @@ const styles = StyleSheet.create({
     maxWidth: 340,
   },
   infoCard: {
-    backgroundColor: 'rgba(19,28,39,0.88)',
+    backgroundColor: 'rgba(255,255,255,0.84)',
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: 20,
@@ -585,7 +608,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   formCard: {
-    backgroundColor: 'rgba(19,28,39,0.95)',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: 22,
@@ -627,10 +650,11 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   errorText: {
-    color: '#FCA5A5',
+    color: palette.danger,
     fontSize: 12,
     marginTop: 7,
     marginLeft: 2,
+    fontWeight: '600',
   },
   strengthRow: {
     flexDirection: 'row',
@@ -640,7 +664,7 @@ const styles = StyleSheet.create({
   strengthTrack: {
     flex: 1,
     height: 6,
-    backgroundColor: '#243244',
+    backgroundColor: '#D9E2F1',
     borderRadius: 999,
     overflow: 'hidden',
     marginRight: 10,
@@ -691,12 +715,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   successBox: {
-    backgroundColor: 'rgba(6,78,59,0.22)',
-    borderColor: 'rgba(16,185,129,0.35)',
+    backgroundColor: '#EAFBF3',
+    borderColor: 'rgba(22,160,105,0.24)',
   },
   errorBox: {
-    backgroundColor: 'rgba(127,29,29,0.22)',
-    borderColor: 'rgba(239,68,68,0.35)',
+    backgroundColor: '#FFF1F3',
+    borderColor: 'rgba(217,75,94,0.24)',
   },
   messageText: {
     flex: 1,

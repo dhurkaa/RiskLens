@@ -27,31 +27,31 @@ type PricingRunRow = {
 };
 
 const palette = {
-  bg: '#F5F7F3',
+  bg: '#F4F7FB',
   surface: '#FFFFFF',
-  surfaceSoft: '#EEF3EC',
-  surfaceSoft2: '#E6EEE5',
-  border: '#D7E1D3',
-  borderStrong: '#C7D4C3',
+  surfaceSoft: '#EEF3FA',
+  surfaceSoft2: '#E5ECF6',
+  border: '#D9E2F1',
+  borderStrong: '#CAD6E8',
 
-  text: '#132118',
-  textSoft: '#425345',
-  textMuted: '#728173',
+  text: '#162033',
+  textSoft: '#42516B',
+  textMuted: '#738199',
 
-  primary: '#183C2A',
-  primary2: '#24583D',
-  primary3: '#2F7A51',
+  primary: '#5AA9FF',
+  primary2: '#7C5CFF',
+  primary3: '#4BE1EC',
 
-  danger: '#D94F4F',
-  warning: '#C98A1F',
-  success: '#2D8A57',
-  info: '#4475D9',
-  purple: '#8B5CF6',
+  danger: '#FF6B7A',
+  warning: '#F7B955',
+  success: '#42D392',
+  info: '#5AA9FF',
+  purple: '#A78BFA',
 
-  redSoft: '#FFF1F1',
-  yellowSoft: '#FFF8E8',
-  greenSoft: '#EDF8F0',
-  blueSoft: '#EDF3FF',
+  redSoft: '#FFF1F3',
+  yellowSoft: '#FFF7E5',
+  greenSoft: '#EAFBF3',
+  blueSoft: '#EAF4FF',
   purpleSoft: '#F3EEFF',
 };
 
@@ -100,13 +100,6 @@ function safeNumber(value?: number | null) {
 
 function formatCurrency(value?: number | null) {
   return `€${safeNumber(value).toFixed(2)}`;
-}
-
-function formatCompactCurrency(value?: number | null) {
-  const n = safeNumber(value);
-  if (n >= 1000000) return `€${(n / 1000000).toFixed(1)}M`;
-  if (n >= 1000) return `€${(n / 1000).toFixed(1)}k`;
-  return `€${n.toFixed(0)}`;
 }
 
 function marginPercent(selling?: number | null, cost?: number | null) {
@@ -547,19 +540,20 @@ export default function AIPricingLabScreen() {
   const syncRunSelectionState = async (items: PricingSuggestion[]) => {
     if (!currentRunId) return;
 
-    const { error: deleteError } = await supabase
-      .from('pricing_run_items')
-      .delete()
-      .eq('run_id', currentRunId);
-
-    if (deleteError) throw deleteError;
-
     const {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser();
 
     if (authError || !user) throw new Error('User not authenticated.');
+
+    const { error: deleteError } = await supabase
+      .from('pricing_run_items')
+      .delete()
+      .eq('run_id', currentRunId)
+      .eq('user_id', user.id);
+
+    if (deleteError) throw deleteError;
 
     const itemPayload = items.map((item) => ({
       run_id: currentRunId,
@@ -595,7 +589,8 @@ export default function AIPricingLabScreen() {
         selected_suggestions: selectedCount,
         estimated_total_impact: Number(totalImpact.toFixed(2)),
       })
-      .eq('id', currentRunId);
+      .eq('id', currentRunId)
+      .eq('user_id', user.id);
 
     if (runUpdateError) throw runUpdateError;
   };
@@ -606,14 +601,17 @@ export default function AIPricingLabScreen() {
       setRunning(true);
 
       const nextSuggestions = generatedSuggestions;
-      setSuggestions(nextSuggestions);
 
       if (nextSuggestions.length > 0) {
         await savePricingRun(nextSuggestions);
       } else {
         setCurrentRunId(null);
       }
+
+      setSuggestions(nextSuggestions);
     } catch (error: any) {
+      setSuggestions([]);
+      setCurrentRunId(null);
       Alert.alert(
         'Pricing Run Error',
         error?.message || 'Failed to save pricing run.'
@@ -642,8 +640,16 @@ export default function AIPricingLabScreen() {
     }
   };
 
-  const applySelectedChanges = async () => {
-    const selected = suggestions.filter((s) => s.selected && s.action_type !== 'hold');
+  const applySelectedChanges = async (itemsToApply = suggestions) => {
+    if (!currentRunId) {
+      Alert.alert(
+        'Run not saved',
+        'Run pricing again before applying changes so the update is linked to a saved pricing session.'
+      );
+      return;
+    }
+
+    const selected = itemsToApply.filter((s) => s.selected && s.action_type !== 'hold');
 
     if (!selected.length) {
       Alert.alert('Nothing selected', 'Select at least one recommendation to apply.');
@@ -654,33 +660,44 @@ export default function AIPricingLabScreen() {
       setApplying(true);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser();
+
+      if (authError || !user) {
+        router.replace('/login');
+        return;
+      }
+
       for (const item of selected) {
         const { error } = await supabase
           .from('food_products')
           .update({ selling_price: item.suggested_price })
-          .eq('id', item.product_id);
+          .eq('id', item.product_id)
+          .eq('user_id', user.id);
 
         if (error) throw error;
       }
 
-      if (currentRunId) {
-        const selectedIds = selected.map((s) => s.product_id);
+      const selectedIds = selected.map((s) => s.product_id);
 
-        const { error: itemsUpdateError } = await supabase
-          .from('pricing_run_items')
-          .update({ was_applied: true })
-          .eq('run_id', currentRunId)
-          .in('product_id', selectedIds);
+      const { error: itemsUpdateError } = await supabase
+        .from('pricing_run_items')
+        .update({ was_applied: true })
+        .eq('run_id', currentRunId)
+        .eq('user_id', user.id)
+        .in('product_id', selectedIds);
 
-        if (itemsUpdateError) throw itemsUpdateError;
+      if (itemsUpdateError) throw itemsUpdateError;
 
-        const { error: runUpdateError } = await supabase
-          .from('pricing_runs')
-          .update({ status: 'applied' })
-          .eq('id', currentRunId);
+      const { error: runUpdateError } = await supabase
+        .from('pricing_runs')
+        .update({ status: 'applied' })
+        .eq('id', currentRunId)
+        .eq('user_id', user.id);
 
-        if (runUpdateError) throw runUpdateError;
-      }
+      if (runUpdateError) throw runUpdateError;
 
       Alert.alert(
         'Pricing applied',
@@ -706,10 +723,7 @@ export default function AIPricingLabScreen() {
 
       setSuggestions(next);
       await syncRunSelectionState(next);
-
-      setTimeout(() => {
-        applySelectedChanges();
-      }, 80);
+      await applySelectedChanges(next);
     } catch (error: any) {
       Alert.alert(
         'Apply All Error',
@@ -749,7 +763,7 @@ export default function AIPricingLabScreen() {
           }
         >
           <LinearGradient
-            colors={['#163728', '#1C4630', '#24583D']}
+            colors={['#5AA9FF', '#6D7CFF', '#4BE1EC']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.hero}
@@ -903,11 +917,11 @@ export default function AIPricingLabScreen() {
             />
 
             <View style={styles.fieldWrap}>
-              <Text style={styles.fieldLabel}>Extra notes for the AI</Text>
+              <Text style={styles.fieldLabel}>Run notes for your review</Text>
               <TextInput
                 value={answers.notes}
                 onChangeText={(value) => setAnswers((p) => ({ ...p, notes: value }))}
-                placeholder="Example: Do not discount premium dairy items too much."
+                placeholder="Example: Review premium dairy items manually before applying."
                 placeholderTextColor={palette.textMuted}
                 multiline
                 style={[styles.input, styles.notesInput]}
@@ -1100,7 +1114,7 @@ export default function AIPricingLabScreen() {
 
                 <TouchableOpacity
                   style={styles.primaryButton}
-                  onPress={applySelectedChanges}
+                  onPress={() => applySelectedChanges()}
                   activeOpacity={0.9}
                   disabled={applying}
                 >
@@ -1166,9 +1180,9 @@ export default function AIPricingLabScreen() {
                 </Text>
 
                 <Text style={styles.modalText}>
-                  This page is already built to work now with local intelligence logic.
-                  The next step is replacing the suggestion engine with a Groq-backed API
-                  so the reasoning and explanations become even stronger and more customized.
+                  Run notes are saved with the pricing session for review and audit context.
+                  The pricing workflow is designed to be explicit: generate recommendations,
+                  save the run, review the logic, then apply only selected changes.
                 </Text>
               </ScrollView>
             </View>
@@ -1178,7 +1192,7 @@ export default function AIPricingLabScreen() {
         <AppSidebar
           visible={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
-          active="recommendations-center"
+          active="ai-pricing-lab"
         />
       </View>
     </SafeAreaView>
@@ -1260,7 +1274,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 26,
     fontWeight: '900',
-    letterSpacing: -0.5,
+    letterSpacing: 0,
     marginBottom: 5,
   },
   heroSubtitle: {
@@ -1271,8 +1285,10 @@ const styles = StyleSheet.create({
   },
   heroInsightBand: {
     marginTop: 18,
-    backgroundColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.88)',
     borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1282,19 +1298,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   heroInsightLabel: {
-    color: 'rgba(255,255,255,0.68)',
+    color: palette.textMuted,
     fontSize: 11,
     fontWeight: '700',
     marginBottom: 4,
     textAlign: 'center',
   },
   heroInsightValue: {
-    color: '#fff',
+    color: palette.text,
     fontSize: 18,
     fontWeight: '900',
   },
   heroInsightValueSmall: {
-    color: '#fff',
+    color: palette.text,
     fontSize: 13,
     fontWeight: '700',
     textAlign: 'center',
@@ -1302,7 +1318,7 @@ const styles = StyleSheet.create({
   heroDivider: {
     width: 1,
     height: 32,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: palette.borderStrong,
     marginHorizontal: 8,
   },
 
@@ -1322,7 +1338,7 @@ const styles = StyleSheet.create({
     color: palette.text,
     fontSize: 22,
     fontWeight: '900',
-    letterSpacing: -0.4,
+    letterSpacing: 0,
   },
   sectionSubtitle: {
     color: palette.textMuted,
