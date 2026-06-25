@@ -1,11 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
   type DimensionValue,
@@ -16,6 +14,8 @@ import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../../lib/supabase';
 import AppSidebar from '../../components/appsidebar';
+import { Text } from '../../components/app-text';
+import ScreenSkeleton from '../../components/skeleton';
 
 const palette = {
   bg: '#F4F7FB',
@@ -178,12 +178,14 @@ function InsightStat({
   subtitle,
   icon,
   tone = 'green',
+  onPress,
 }: {
   title: string;
   value: string;
   subtitle: string;
   icon: React.ComponentProps<typeof Ionicons>['name'];
   tone?: 'green' | 'yellow' | 'red' | 'blue' | 'purple' | 'cyan';
+  onPress?: () => void;
 }) {
   const bgMap = {
     green: palette.greenSoft,
@@ -204,14 +206,17 @@ function InsightStat({
   } as const;
 
   return (
-    <View style={styles.statCard}>
-      <View style={[styles.statIconWrap, { backgroundColor: bgMap[tone] }]}>
-        <Ionicons name={icon} size={18} color={colorMap[tone]} />
+    <TouchableOpacity style={styles.statCard} activeOpacity={0.88} onPress={onPress} disabled={!onPress}>
+      <View style={styles.statTopRow}>
+        <View style={[styles.statIconWrap, { backgroundColor: bgMap[tone] }]}>
+          <Ionicons name={icon} size={18} color={colorMap[tone]} />
+        </View>
+        {onPress ? <Ionicons name="chevron-forward" size={16} color={palette.textMuted} /> : null}
       </View>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statTitle}>{title}</Text>
       <Text style={styles.statSubtitle}>{subtitle}</Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -428,13 +433,15 @@ const [sidebarOpen, setSidebarOpen] = useState(false);
     await loadInsights(true);
   };
 
+  const go = (path: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(path as never);
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={palette.primary2} />
-          <Text style={styles.loadingText}>Loading insights...</Text>
-        </View>
+        <ScreenSkeleton />
       </SafeAreaView>
     );
   }
@@ -530,6 +537,7 @@ const [sidebarOpen, setSidebarOpen] = useState(false);
             subtitle="Tracked inventory items"
             icon="basket-outline"
             tone="green"
+            onPress={() => go('/(tabs)/products')}
           />
           <InsightStat
             title="High risk"
@@ -537,6 +545,7 @@ const [sidebarOpen, setSidebarOpen] = useState(false);
             subtitle="Require immediate action"
             icon="warning-outline"
             tone="red"
+            onPress={() => go('/(tabs)/products?filter=high_risk')}
           />
           <InsightStat
             title="Near expiry"
@@ -544,6 +553,7 @@ const [sidebarOpen, setSidebarOpen] = useState(false);
             subtitle="Within 7 days"
             icon="time-outline"
             tone="yellow"
+            onPress={() => go('/(tabs)/waste-expiry')}
           />
           <InsightStat
             title="Weak margin"
@@ -551,6 +561,7 @@ const [sidebarOpen, setSidebarOpen] = useState(false);
             subtitle="Below healthy threshold"
             icon="cash-outline"
             tone="blue"
+            onPress={() => go('/(tabs)/products?filter=weak_margin')}
           />
           <InsightStat
             title="Waste exposure"
@@ -558,6 +569,7 @@ const [sidebarOpen, setSidebarOpen] = useState(false);
             subtitle="At cost basis"
             icon="trash-outline"
             tone="purple"
+            onPress={() => go('/(tabs)/waste-expiry')}
           />
           <InsightStat
             title="Recommendation impact"
@@ -565,6 +577,7 @@ const [sidebarOpen, setSidebarOpen] = useState(false);
             subtitle="Estimated opportunity"
             icon="sparkles-outline"
             tone="cyan"
+            onPress={() => go('/(tabs)/recommendations-center')}
           />
         </View>
 
@@ -948,13 +961,18 @@ heroMenuButton: {
     borderWidth: 1,
     borderColor: palette.border,
   },
+  statTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
   statIconWrap: {
     width: 40,
     height: 40,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
   },
   statValue: {
     color: palette.text,

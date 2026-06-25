@@ -1,25 +1,20 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  Animated,
-  Pressable,
   RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
-  Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../../lib/supabase';
-
-const { width } = Dimensions.get('window');
-const SIDEBAR_WIDTH = Math.min(320, width * 0.82);
+import AppSidebar from '../../components/appsidebar';
+import { Text } from '../../components/app-text';
+import ScreenSkeleton from '../../components/skeleton';
 
 const palette = {
   bg: '#F4F7FB',
@@ -167,12 +162,14 @@ function TopMetric({
   subtitle,
   icon,
   tone = 'green',
+  onPress,
 }: {
   title: string;
   value: string;
   subtitle: string;
   icon: React.ComponentProps<typeof Ionicons>['name'];
   tone?: 'green' | 'yellow' | 'red' | 'blue' | 'purple' | 'cyan';
+  onPress?: () => void;
 }) {
   const bgMap = {
     green: palette.greenSoft,
@@ -193,14 +190,17 @@ function TopMetric({
   } as const;
 
   return (
-    <View style={styles.topMetricCard}>
-      <View style={[styles.topMetricIconWrap, { backgroundColor: bgMap[tone] }]}>
-        <Ionicons name={icon} size={18} color={colorMap[tone]} />
+    <TouchableOpacity style={styles.topMetricCard} activeOpacity={0.88} onPress={onPress} disabled={!onPress}>
+      <View style={styles.topMetricTopRow}>
+        <View style={[styles.topMetricIconWrap, { backgroundColor: bgMap[tone] }]}>
+          <Ionicons name={icon} size={18} color={colorMap[tone]} />
+        </View>
+        {onPress ? <Ionicons name="chevron-forward" size={16} color={palette.textMuted} /> : null}
       </View>
       <Text style={styles.topMetricValue}>{value}</Text>
       <Text style={styles.topMetricTitle}>{title}</Text>
       <Text style={styles.topMetricSubtitle}>{subtitle}</Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -268,35 +268,6 @@ function ActionCard({
   );
 }
 
-function SidebarItem({
-  icon,
-  label,
-  onPress,
-  active = false,
-}: {
-  icon: React.ComponentProps<typeof Ionicons>['name'];
-  label: string;
-  onPress: () => void;
-  active?: boolean;
-}) {
-  return (
-    <TouchableOpacity
-      style={[styles.sidebarItem, active && styles.sidebarItemActive]}
-      onPress={onPress}
-      activeOpacity={0.9}
-    >
-      <Ionicons
-        name={icon}
-        size={18}
-        color={active ? '#fff' : palette.textSoft}
-      />
-      <Text style={[styles.sidebarItemText, active && styles.sidebarItemTextActive]}>
-        {label}
-      </Text>
-    </TouchableOpacity>
-  );
-}
-
 function SmallInfoCard({
   title,
   value,
@@ -324,27 +295,6 @@ export default function DecisionCenterScreen() {
   const [recommendations, setRecommendations] = useState<RecommendationRow[]>([]);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const sidebarAnim = useRef(new Animated.Value(0)).current;
-
-  const openSidebar = () => {
-    setSidebarOpen(true);
-    Animated.timing(sidebarAnim, {
-      toValue: 1,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const closeSidebar = () => {
-    Animated.timing(sidebarAnim, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (finished) setSidebarOpen(false);
-    });
-  };
 
   const loadData = useCallback(async (isRefresh = false) => {
     try {
@@ -551,30 +501,15 @@ export default function DecisionCenterScreen() {
     await loadData(true);
   };
 
-  const sidebarTranslateX = sidebarAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-SIDEBAR_WIDTH, 0],
-  });
-
-  const overlayOpacity = sidebarAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, 0.32],
-  });
-
-  const goFromSidebar = (path: string) => {
-    closeSidebar();
-    setTimeout(() => {
-      router.push(path as never);
-    }, 180);
+  const go = (path: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(path as never);
   };
 
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={palette.primary2} />
-          <Text style={styles.loadingText}>Loading decision center...</Text>
-        </View>
+        <ScreenSkeleton />
       </SafeAreaView>
     );
   }
@@ -600,7 +535,7 @@ export default function DecisionCenterScreen() {
             style={styles.hero}
           >
             <View style={styles.heroTopRow}>
-              <TouchableOpacity style={styles.heroButton} onPress={openSidebar}>
+              <TouchableOpacity style={styles.heroButton} onPress={() => setSidebarOpen(true)}>
                 <Ionicons name="menu-outline" size={20} color="#fff" />
               </TouchableOpacity>
 
@@ -686,6 +621,7 @@ export default function DecisionCenterScreen() {
               subtitle="Tracked inventory items"
               icon="basket-outline"
               tone="green"
+              onPress={() => go('/(tabs)/products')}
             />
             <TopMetric
               title="Low stock"
@@ -693,6 +629,7 @@ export default function DecisionCenterScreen() {
               subtitle="Require replenishment"
               icon="cube-outline"
               tone="yellow"
+              onPress={() => go('/(tabs)/products?filter=low_stock')}
             />
             <TopMetric
               title="Near expiry"
@@ -700,6 +637,7 @@ export default function DecisionCenterScreen() {
               subtitle="Within 7 days"
               icon="time-outline"
               tone="red"
+              onPress={() => go('/(tabs)/waste-expiry')}
             />
             <TopMetric
               title="Weak margin"
@@ -707,6 +645,7 @@ export default function DecisionCenterScreen() {
               subtitle="Below target margin"
               icon="cash-outline"
               tone="blue"
+              onPress={() => go('/(tabs)/products?filter=weak_margin')}
             />
             <TopMetric
               title="Alerts"
@@ -714,6 +653,7 @@ export default function DecisionCenterScreen() {
               subtitle="Operational signals"
               icon="notifications-outline"
               tone="purple"
+              onPress={() => go('/(tabs)/alerts-center')}
             />
             <TopMetric
               title="Recommendation impact"
@@ -721,6 +661,7 @@ export default function DecisionCenterScreen() {
               subtitle="Estimated value"
               icon="sparkles-outline"
               tone="cyan"
+              onPress={() => go('/(tabs)/recommendations-center')}
             />
           </View>
 
@@ -875,93 +816,11 @@ export default function DecisionCenterScreen() {
           <View style={{ height: 28 }} />
         </ScrollView>
 
-        {sidebarOpen ? (
-          <>
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                styles.overlay,
-                {
-                  opacity: overlayOpacity,
-                },
-              ]}
-            />
-            <Pressable style={styles.overlayPressable} onPress={closeSidebar} />
-
-            <Animated.View
-              style={[
-                styles.sidebar,
-                {
-                  transform: [{ translateX: sidebarTranslateX }],
-                },
-              ]}
-            >
-              <LinearGradient
-                colors={['#5AA9FF', '#6D7CFF', '#4BE1EC']}
-                style={styles.sidebarHeader}
-              >
-                <View style={styles.sidebarBrandIcon}>
-                  <MaterialCommunityIcons name="view-dashboard-outline" size={24} color="#fff" />
-                </View>
-                <Text style={styles.sidebarTitle}>RiskLens</Text>
-                <Text style={styles.sidebarSubtitle}>Decision workspace</Text>
-              </LinearGradient>
-
-              <ScrollView
-                style={styles.sidebarBody}
-                contentContainerStyle={styles.sidebarBodyContent}
-                showsVerticalScrollIndicator={false}
-              >
-                <SidebarItem
-                  icon="flash-outline"
-                  label="Decision Center"
-                  active
-                  onPress={closeSidebar}
-                />
-                <SidebarItem
-                  icon="grid-outline"
-                  label="Dashboard"
-                  onPress={() => goFromSidebar('/(tabs)')}
-                />
-                <SidebarItem
-                  icon="basket-outline"
-                  label="Products"
-                  onPress={() => goFromSidebar('/(tabs)/products')}
-                />
-                <SidebarItem
-                  icon="cloud-upload-outline"
-                  label="Upload CSV"
-                  onPress={() => goFromSidebar('/(tabs)/upload')}
-                />
-                <SidebarItem
-                  icon="analytics-outline"
-                  label="Insights"
-                  onPress={() => goFromSidebar('/(tabs)/explore')}
-                />
-                <SidebarItem
-                  icon="notifications-outline"
-                  label="Alerts Center"
-                  onPress={() => goFromSidebar('/(tabs)/alerts-center')}
-                />
-                <SidebarItem
-                  icon="sparkles-outline"
-                  label="Recommendations"
-                  onPress={() => goFromSidebar('/(tabs)/recommendations-center')}
-                />
-                <SidebarItem
-                  icon="business-outline"
-                  label="Supplier Performance"
-                  onPress={() => goFromSidebar('/(tabs)/supplier-performance')}
-                />
-                <SidebarItem
-                  icon="trash-outline"
-                  label="Waste & Expiry"
-                  onPress={() => goFromSidebar('/(tabs)/waste-expiry')}
-                />
-              </ScrollView>
-            </Animated.View>
-          </>
-        ) : null}
+        <AppSidebar
+          visible={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          active="decision-center"
+        />
       </View>
     </SafeAreaView>
   );
@@ -1201,13 +1060,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
+  topMetricTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
   topMetricIconWrap: {
     width: 40,
     height: 40,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
   },
   topMetricValue: {
     color: palette.text,
@@ -1333,79 +1197,4 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000',
-  },
-  overlayPressable: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  sidebar: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    width: SIDEBAR_WIDTH,
-    backgroundColor: palette.surface,
-    borderTopRightRadius: 24,
-    borderBottomRightRadius: 24,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 18,
-    shadowOffset: { width: 4, height: 0 },
-    elevation: 12,
-  },
-  sidebarHeader: {
-    paddingTop: 56,
-    paddingHorizontal: 18,
-    paddingBottom: 18,
-  },
-  sidebarBrandIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 14,
-  },
-  sidebarTitle: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: '900',
-    marginBottom: 4,
-  },
-  sidebarSubtitle: {
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  sidebarBody: {
-    flex: 1,
-  },
-  sidebarBodyContent: {
-    padding: 14,
-    gap: 8,
-  },
-  sidebarItem: {
-    minHeight: 48,
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 14,
-    backgroundColor: palette.surfaceSoft,
-  },
-  sidebarItemActive: {
-    backgroundColor: palette.primary2,
-  },
-  sidebarItemText: {
-    color: palette.textSoft,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  sidebarItemTextActive: {
-    color: '#fff',
-  },
 });

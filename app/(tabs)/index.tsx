@@ -1,11 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -15,6 +13,10 @@ import { router } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../../lib/supabase';
 import AppSidebar from '../../components/appsidebar';
+import HealthGauge from '../../components/health-gauge';
+import { computeStats, healthLabel } from '../../lib/copilotEngine';
+import { Text } from '../../components/app-text';
+import ScreenSkeleton from '../../components/skeleton';
 
 const palette = {
   bg: '#F4F7FB',
@@ -161,12 +163,14 @@ function MetricCard({
   subtitle,
   icon,
   tone = 'blue',
+  onPress,
 }: {
   title: string;
   value: string;
   subtitle: string;
   icon: React.ComponentProps<typeof Ionicons>['name'];
   tone?: 'red' | 'yellow' | 'blue' | 'green' | 'purple';
+  onPress?: () => void;
 }) {
   const bgMap = {
     red: palette.redSoft,
@@ -185,14 +189,17 @@ function MetricCard({
   } as const;
 
   return (
-    <View style={styles.metricCard}>
-      <View style={[styles.metricIconWrap, { backgroundColor: bgMap[tone] }]}>
-        <Ionicons name={icon} size={18} color={colorMap[tone]} />
+    <TouchableOpacity style={styles.metricCard} activeOpacity={0.88} onPress={onPress} disabled={!onPress}>
+      <View style={styles.metricTopRow}>
+        <View style={[styles.metricIconWrap, { backgroundColor: bgMap[tone] }]}>
+          <Ionicons name={icon} size={18} color={colorMap[tone]} />
+        </View>
+        {onPress ? <Ionicons name="chevron-forward" size={16} color={palette.textMuted} /> : null}
       </View>
       <Text style={styles.metricValue}>{value}</Text>
       <Text style={styles.metricTitle}>{title}</Text>
       <Text style={styles.metricSubtitle}>{subtitle}</Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -336,6 +343,11 @@ export default function DashboardScreen() {
     };
   }, [products, alerts, recommendations, pricingRuns]);
 
+  const health = useMemo(
+    () => computeStats({ products: products as any, alerts: alerts as any, recommendations: recommendations as any }),
+    [products, alerts, recommendations]
+  );
+
   const topRiskProducts = useMemo(() => {
     return [...products].sort((a, b) => riskScore(b) - riskScore(a)).slice(0, 5);
   }, [products]);
@@ -345,13 +357,15 @@ export default function DashboardScreen() {
     await loadDashboard(true);
   };
 
+  const go = (path: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(path as never);
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={palette.primary2} />
-          <Text style={styles.loadingText}>Loading dashboard...</Text>
-        </View>
+        <ScreenSkeleton />
       </SafeAreaView>
     );
   }
@@ -382,6 +396,13 @@ export default function DashboardScreen() {
               </TouchableOpacity>
 
               <View style={styles.heroActions}>
+                <TouchableOpacity
+                  style={styles.heroButton}
+                  onPress={() => router.push('/(tabs)/copilot')}
+                >
+                  <MaterialCommunityIcons name="robot-happy-outline" size={20} color="#fff" />
+                </TouchableOpacity>
+
                 <TouchableOpacity
                   style={styles.heroButton}
                   onPress={() => router.push('/(tabs)/alerts-center')}
@@ -451,6 +472,7 @@ export default function DashboardScreen() {
               subtitle="Tracked active items"
               icon="basket-outline"
               tone="green"
+              onPress={() => go('/(tabs)/products')}
             />
             <MetricCard
               title="Low stock"
@@ -458,6 +480,7 @@ export default function DashboardScreen() {
               subtitle="Need replenishment"
               icon="cube-outline"
               tone="yellow"
+              onPress={() => go('/(tabs)/products?filter=low_stock')}
             />
             <MetricCard
               title="Near expiry"
@@ -465,6 +488,7 @@ export default function DashboardScreen() {
               subtitle="Within 7 days"
               icon="time-outline"
               tone="red"
+              onPress={() => go('/(tabs)/waste-expiry')}
             />
             <MetricCard
               title="High risk"
@@ -472,6 +496,7 @@ export default function DashboardScreen() {
               subtitle="Require urgent review"
               icon="warning-outline"
               tone="purple"
+              onPress={() => go('/(tabs)/products?filter=high_risk')}
             />
             <MetricCard
               title="Avg margin"
@@ -479,6 +504,7 @@ export default function DashboardScreen() {
               subtitle="Across active products"
               icon="cash-outline"
               tone="blue"
+              onPress={() => go('/(tabs)/products?filter=weak_margin')}
             />
             <MetricCard
               title="Pricing impact"
@@ -486,7 +512,56 @@ export default function DashboardScreen() {
               subtitle="Saved pricing runs"
               icon="sparkles-outline"
               tone="green"
+              onPress={() => go('/(tabs)/pricing-history')}
             />
+          </View>
+
+          <SectionHeader
+            eyebrow="Health"
+            title="Business health score"
+            subtitle="One number that blends expiry, stock, margin and risk pressure across your store."
+          />
+
+          <View style={styles.healthCard}>
+            <HealthGauge
+              score={health.healthScore}
+              size={150}
+              label="/100"
+              caption={healthLabel(health.healthScore)}
+            />
+
+            <View style={styles.healthRight}>
+              <View style={styles.healthStatRow}>
+                <View style={[styles.healthStatDot, { backgroundColor: palette.danger }]} />
+                <Text style={styles.healthStatText}>
+                  {health.nearExpiry.length} near expiry • {health.expired.length} expired
+                </Text>
+              </View>
+              <View style={styles.healthStatRow}>
+                <View style={[styles.healthStatDot, { backgroundColor: palette.warning }]} />
+                <Text style={styles.healthStatText}>
+                  {health.lowStock.length} low stock • {health.outOfStock.length} out
+                </Text>
+              </View>
+              <View style={styles.healthStatRow}>
+                <View style={[styles.healthStatDot, { backgroundColor: palette.info }]} />
+                <Text style={styles.healthStatText}>
+                  {health.weakMargin.length} weak margin • {Math.round(health.avgMargin)}% avg
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.healthCopilotButton}
+                activeOpacity={0.9}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push('/(tabs)/copilot');
+                }}
+              >
+                <MaterialCommunityIcons name="robot-happy-outline" size={16} color="#fff" />
+                <Text style={styles.healthCopilotText}>Ask Copilot why</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           <SectionHeader
@@ -496,6 +571,12 @@ export default function DashboardScreen() {
           />
 
           <View style={styles.quickActionsWrap}>
+            <QuickAction
+              icon="chatbubbles-outline"
+              title="Ask RiskLens Copilot"
+              subtitle="Get instant answers about your store"
+              onPress={() => router.push('/(tabs)/copilot')}
+            />
             <QuickAction
               icon="sparkles-outline"
               title="Run AI Pricing"
@@ -835,13 +916,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
+  metricTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
   metricIconWrap: {
     width: 40,
     height: 40,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
   },
   metricValue: {
     color: palette.text,
@@ -860,6 +946,54 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginTop: 6,
     fontWeight: '500',
+  },
+
+  healthCard: {
+    backgroundColor: palette.surface,
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    marginBottom: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  healthRight: {
+    flex: 1,
+    paddingLeft: 8,
+    gap: 10,
+  },
+  healthStatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  healthStatDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  healthStatText: {
+    color: palette.textSoft,
+    fontSize: 12,
+    fontWeight: '700',
+    flex: 1,
+  },
+  healthCopilotButton: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: palette.primary2,
+    borderRadius: 14,
+    paddingVertical: 12,
+  },
+  healthCopilotText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '900',
   },
 
   quickActionsWrap: {

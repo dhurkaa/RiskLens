@@ -8,17 +8,18 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Text } from '../components/app-text';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { getFriendlyAuthErrorMessage, signIn } from '../src/services/authService';
 import { DEMO_ACCOUNT, supabase } from '../lib/supabase';
+import { useT } from '../lib/i18n';
 
 const colors = {
   bg: '#F4F7FB',
@@ -42,6 +43,7 @@ const colors = {
 
 export default function LoginScreen() {
   const router = useRouter();
+  const t = useT();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -316,7 +318,7 @@ export default function LoginScreen() {
                   setFocusedField(null);
                   setTouched((prev) => ({ ...prev, email: true }));
                 }}
-                placeholder="Business email"
+                placeholder={t('Business email')}
                 placeholderTextColor={colors.textMuted}
                 autoCapitalize="none"
                 keyboardType="email-address"
@@ -350,7 +352,7 @@ export default function LoginScreen() {
                   setFocusedField(null);
                   setTouched((prev) => ({ ...prev, password: true }));
                 }}
-                placeholder="Password"
+                placeholder={t('Password')}
                 placeholderTextColor={colors.textMuted}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"

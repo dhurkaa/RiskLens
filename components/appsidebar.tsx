@@ -5,7 +5,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -13,6 +12,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { supabase } from '../lib/supabase';
+import { Text } from './app-text';
 
 const { width } = Dimensions.get('window');
 const SIDEBAR_WIDTH = Math.min(320, width * 0.82);
@@ -28,6 +28,7 @@ const palette = {
 };
 
 type SidebarRoute =
+  | 'copilot'
   | 'decision-center'
   | 'dashboard'
   | 'products'
@@ -39,7 +40,8 @@ type SidebarRoute =
   | 'waste-expiry'
   | 'ai-pricing-lab'
   | 'pricing-history'
-  | 'tutorial';
+  | 'tutorial'
+  | 'settings';
 
 type Props = {
   visible: boolean;
@@ -160,6 +162,28 @@ export default function AppSidebar({ visible, onClose, active }: Props) {
           contentContainerStyle={styles.sidebarBodyContent}
           showsVerticalScrollIndicator={false}
         >
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => go('/(tabs)/copilot')}
+            style={styles.copilotButton}
+          >
+            <LinearGradient
+              colors={['#5AA9FF', '#6D7CFF', '#4BE1EC']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.copilotButtonInner}
+            >
+              <View style={styles.copilotIcon}>
+                <MaterialCommunityIcons name="robot-happy-outline" size={18} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.copilotTitle}>RiskLens Copilot</Text>
+                <Text style={styles.copilotSubtitle}>Ask anything about your store</Text>
+              </View>
+              <Ionicons name="sparkles" size={16} color="#fff" />
+            </LinearGradient>
+          </TouchableOpacity>
+
           <SidebarItem
             icon="flash-outline"
             label="Decision Center"
@@ -242,6 +266,12 @@ export default function AppSidebar({ visible, onClose, active }: Props) {
             active={active === 'tutorial'}
             onPress={() => go('/(tabs)/tutorial')}
           />
+          <SidebarItem
+            icon="settings-outline"
+            label="Settings"
+            active={active === 'settings'}
+            onPress={() => go('/(tabs)/settings')}
+          />
 
           <TouchableOpacity
             style={styles.logoutButton}
@@ -258,6 +288,42 @@ export default function AppSidebar({ visible, onClose, active }: Props) {
 }
 
 const styles = StyleSheet.create({
+  copilotButton: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    marginBottom: 4,
+    shadowColor: '#6D7CFF',
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  copilotButtonInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  copilotIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  copilotTitle: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  copilotSubtitle: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 11,
+    fontWeight: '600',
+  },
   logoutButton: {
     marginTop: 18,
     minHeight: 50,
