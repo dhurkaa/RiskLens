@@ -15,8 +15,20 @@ import {
 
 export { DEMO_ACCOUNT };
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+// RiskLens is designed to run as a fully self-contained demo even when no
+// Supabase backend is configured. If the public env vars are missing we fall
+// back to safe placeholder values so `createClient` never throws at module
+// load time (which would white-screen the whole app). All real data flows
+// through the offline demo store in that case.
+const supabaseUrl =
+  process.env.EXPO_PUBLIC_SUPABASE_URL || 'https://demo.risklens.local';
+const supabaseAnonKey =
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'risklens-public-demo-anon-key';
+
+export const hasRemoteBackend =
+  !!process.env.EXPO_PUBLIC_SUPABASE_URL &&
+  !!process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
 const fallbackWebStorage = new Map<string, string>();
 
 function withTimeout<T>(promise: PromiseLike<T>, fallback: T, timeoutMs = 5000) {
