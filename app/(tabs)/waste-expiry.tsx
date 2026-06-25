@@ -1,15 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
   type DimensionValue,
 } from 'react-native';
+import { Text } from '../../components/app-text';
+import ScreenSkeleton from '../../components/skeleton';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -360,10 +360,7 @@ export default function WasteExpiryScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={palette.primary2} />
-          <Text style={styles.loadingText}>Loading waste and expiry analytics...</Text>
-        </View>
+        <ScreenSkeleton />
       </SafeAreaView>
     );
   }

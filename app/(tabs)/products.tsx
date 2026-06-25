@@ -1,22 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Text } from '../../components/app-text';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../../lib/supabase';
 import AppSidebar from '../../components/appsidebar';
+import { useT } from '../../lib/i18n';
+import ScreenSkeleton from '../../components/skeleton';
 
 const palette = {
   bg: '#F4F7FB',
@@ -364,14 +365,29 @@ function ProductCard({
   );
 }
 
+const FILTER_VALUES: FilterType[] = ['all', 'low_stock', 'near_expiry', 'weak_margin', 'high_risk'];
+
 export default function ProductsScreen() {
+  const t = useT();
+  const params = useLocalSearchParams<{ filter?: string }>();
+  const initialFilter = (FILTER_VALUES as string[]).includes(String(params.filter))
+    ? (params.filter as FilterType)
+    : 'all';
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [search, setSearch] = useState('');
-  const [selectedFilter, setSelectedFilter] = useState<FilterType>('all');
+  const [selectedFilter, setSelectedFilter] = useState<FilterType>(initialFilter);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
+
+  // Keep the active filter in sync when arriving via a deep link (e.g. a
+  // dashboard metric card linking to ?filter=low_stock).
+  useEffect(() => {
+    if ((FILTER_VALUES as string[]).includes(String(params.filter))) {
+      setSelectedFilter(params.filter as FilterType);
+    }
+  }, [params.filter]);
 
   const loadProducts = useCallback(async (isRefresh = false) => {
     try {
@@ -549,10 +565,7 @@ export default function ProductsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={palette.primary2} />
-          <Text style={styles.loadingText}>Loading products...</Text>
-        </View>
+        <ScreenSkeleton />
       </SafeAreaView>
     );
   }
@@ -696,7 +709,7 @@ export default function ProductsScreen() {
               <TextInput
                 value={search}
                 onChangeText={setSearch}
-                placeholder="Search by product, category, SKU, barcode, supplier..."
+                placeholder={t('Search by product, category, SKU, barcode, supplier...')}
                 placeholderTextColor={palette.textMuted}
                 style={styles.searchInput}
               />

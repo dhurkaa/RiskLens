@@ -13,7 +13,9 @@ Instead of manually checking products, the system highlights the most important 
 ## Main Features
 
 - User authentication system
-- Product dashboard
+- One-tap offline **demo workspace** (no backend or API keys required)
+- Product dashboard with an animated **Business Health Score**
+- **RiskLens Copilot** — a conversational AI analyst for your store
 - CSV file upload
 - Required column validation
 - Low stock detection
@@ -21,7 +23,25 @@ Instead of manually checking products, the system highlights the most important 
 - Inventory value calculation
 - Profit and margin calculation
 - Supplier tracking
+- AI Pricing Lab, Decision Center, Insights & Waste/Expiry analytics
 - Clean and mobile-friendly UI
+
+## RiskLens Copilot
+
+The Copilot is a conversational assistant that answers natural-language
+questions about your live inventory — "What's expiring soon?", "What should I
+restock?", "Where are my weak margins?", or "Tell me about the salmon".
+
+It runs a deterministic reasoning engine **entirely on-device**, so every number
+it reports is computed directly from your real product, alert, and
+recommendation data. That means it works with zero backend and zero API keys.
+If an optional Groq API key is provided (`EXPO_PUBLIC_GROQ_API_KEY`), the Copilot
+will additionally use an LLM to phrase its answers more naturally — but the
+underlying figures always stay grounded in the on-device analysis.
+
+The Business Health Score blends expiry pressure, stock pressure, margin
+quality, and risk into a single 0–100 gauge so an owner can read the state of
+the whole store at a glance.
 
 ## CSV Format
 
@@ -89,9 +109,16 @@ CSV Upload → Validation → Data Processing → Database → Dashboard → Ris
 
 ## Current Progress
 
-We have successfully built the main dashboard, implemented CSV upload, added validation for required columns, and displayed product data with basic risk analysis.
+The product is feature-complete for a demo. We have built the main dashboard
+(with an animated Business Health Score), the conversational RiskLens Copilot,
+CSV upload with column validation, the AI Pricing Lab, the Decision Center,
+Insights, Alerts, Recommendations, Supplier Performance, and Waste & Expiry
+analytics.
 
-The system already works with real data and shows useful insights for businesses.
+The whole app runs end-to-end offline through a built-in demo workspace, so it
+can be reviewed instantly without configuring Supabase — just press
+"Use demo workspace" on the login screen. It also connects to a real Supabase
+backend when the `EXPO_PUBLIC_SUPABASE_*` environment variables are provided.
 
 ## Challenges
 

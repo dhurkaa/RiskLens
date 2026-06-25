@@ -5,7 +5,6 @@ import {
   SafeAreaView,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -15,6 +14,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import AppSidebar from '../../components/appsidebar';
+import { Text } from '../../components/app-text';
 
 const palette = {
   bg: '#F4F7FB',

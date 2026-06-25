@@ -760,8 +760,8 @@ class DemoQueryBuilder implements PromiseLike<{ data: any; error: null }> {
   private selectedColumns: string | null = null;
   private rowsToInsert: any[] = [];
   private updatePayload: Record<string, any> = {};
-  private filters: Array<{ column: string; value: any }> = [];
-  private inFilters: Array<{ column: string; values: any[] }> = [];
+  private filters: { column: string; value: any }[] = [];
+  private inFilters: { column: string; values: any[] }[] = [];
   private orderBy: { column: string; ascending: boolean } | null = null;
   private maxRows: number | null = null;
   private singleMode: 'single' | 'maybeSingle' | null = null;
