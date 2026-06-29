@@ -1,0 +1,13 @@
+name,category,sku,barcode,stock_quantity,min_stock_level,cost_price,selling_price,expiry_date,supplier_name,status
+Whole Milk 2L,Dairy,DAI-WM-2L,200000000001,30,15,1.05,1.75,2026-06-28,DairyFresh,active
+Butter Croissant,Bakery,BAK-BC-001,200000000002,8,18,0.55,1.40,2026-06-27,BakeHouse,active
+Cheddar Block 400g,Dairy,DAI-CB-400,200000000003,4,10,3.20,5.50,2026-08-15,DairyFresh,active
+Tomato Pasta Sauce,Pantry,PAN-PS-500,200000000004,90,25,0.80,1.60,2027-02-01,PantryPro,active
+Sparkling Lemonade 1L,Drinks,DRI-SL-1L,200000000005,12,20,0.60,0.95,2026-07-20,FruitCo,active
+Chicken Breast 500g,Meat,MEA-CB-500,200000000006,6,12,3.80,5.90,2026-06-29,FreshBite,active
+Greek Salad Bowl,Ready Meals,MEA-GS-001,200000000007,0,10,2.30,4.20,2026-07-02,FreshBite,active
+Dark Chocolate 100g,Snacks,SNA-DC-100,200000000008,55,30,0.70,1.05,2026-11-30,SweetLine,active
+Still Water 1.5L,Drinks,DRI-SW-15,200000000009,140,40,0.22,0.65,2027-10-31,AquaPure,active
+Free-Range Eggs 6pk,Dairy,DAI-EG-006,200000000010,9,16,1.40,2.30,2026-07-12,FarmNest,active
+Hummus & Pita Pack,Chilled,CHI-HP-001,200000000011,20,12,1.10,2.10,2026-07-01,FreshBite,active
+Smoked Salmon 200g,Seafood,SEA-SS-200,200000000012,5,9,6.20,9.80,2026-06-28,OceanPrime,active
