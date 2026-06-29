@@ -33,6 +33,9 @@ yarn-error.*
 .DS_Store
 *.pem
 
+# Office temp / lock files
+~$*
+
 # local env files (NEVER commit your real API keys)
 .env
 .env.*

@@ -26,6 +26,43 @@ Instead of manually checking products, the system highlights the most important 
 - AI Pricing Lab, Decision Center, Insights & Waste/Expiry analytics
 - Clean and mobile-friendly UI
 
+## Getting Started (Local Setup)
+
+### Prerequisites
+- **Node.js 18+** and **npm**
+- No global Expo install needed — it runs through `npx`.
+
+### Installation
+```bash
+# 1. Clone the repository
+git clone https://github.com/dhurkaa/RiskLens.git
+cd RiskLens
+
+# 2. Install dependencies
+npm install
+
+# 3. (Optional) Configure environment variables.
+#    The app runs FULLY OFFLINE without them — skip this to just try it.
+cp .env.example .env
+#    then open .env and fill in your Supabase and/or OpenAI values.
+```
+
+### Run it
+```bash
+npm run web       # Web  → http://localhost:8081
+npm run android   # Android emulator / device
+npm run ios       # iOS simulator (macOS only)
+npm start         # Expo dev server (choose a target)
+```
+
+On the login screen, press **"Use demo workspace"** to explore the entire app
+instantly with a preloaded demo store — **no backend or API keys required**.
+
+### Production web build
+```bash
+npm run build:web   # static web export → dist/  (this is what Vercel deploys)
+```
+
 ## RiskLens Copilot
 
 The Copilot is a conversational assistant that answers natural-language
@@ -35,9 +72,9 @@ restock?", "Where are my weak margins?", or "Tell me about the salmon".
 It runs a deterministic reasoning engine **entirely on-device**, so every number
 it reports is computed directly from your real product, alert, and
 recommendation data. That means it works with zero backend and zero API keys.
-If an optional Groq API key is provided (`EXPO_PUBLIC_GROQ_API_KEY`), the Copilot
-will additionally use an LLM to phrase its answers more naturally — but the
-underlying figures always stay grounded in the on-device analysis.
+If an optional OpenAI API key is provided (`EXPO_PUBLIC_OPENAI_API_KEY`), the
+Copilot will additionally use ChatGPT to phrase its answers more naturally — but
+the underlying figures always stay grounded in the on-device analysis.
 
 The Business Health Score blends expiry pressure, stock pressure, margin
 quality, and risk into a single 0–100 gauge so an owner can read the state of
@@ -106,6 +143,47 @@ More than 7 days → Safe
 ## Architecture
 
 CSV Upload → Validation → Data Processing → Database → Dashboard → Risk Analysis
+
+## Project Structure
+
+```
+risklens/
+├── app/                       # Expo Router screens (file-based routing)
+│   ├── _layout.tsx            # Root layout + providers (auth, i18n, theme)
+│   ├── login.tsx / signup.tsx # Authentication screens
+│   └── (tabs)/                # Main authenticated app
+│       ├── index.tsx          # Dashboard + animated Business Health Score
+│       ├── copilot.tsx        # RiskLens Copilot (conversational AI analyst)
+│       ├── decision-center.tsx# "What should I do next?" action list
+│       ├── ai-pricing-lab.tsx # Goal-based price proposals
+│       ├── alerts-center.tsx  # Low-stock / expiry alerts
+│       ├── recommendations-center.tsx
+│       ├── supplier-performance.tsx
+│       ├── waste-expiry.tsx   # Spoilage / expiry analytics
+│       ├── products.tsx · product-details.tsx · edit-product.tsx
+│       ├── upload.tsx         # CSV upload + column validation
+│       └── settings.tsx       # Language switch (EN/AL) + preferences
+├── lib/                       # Core logic
+│   ├── copilotEngine.ts       # On-device deterministic reasoning engine
+│   ├── aiChat.ts              # OpenAI (ChatGPT) integration, grounded on real data
+│   ├── i18n.tsx               # Internationalization provider
+│   ├── translations.ts        # English / Albanian strings
+│   ├── supabase.ts            # Supabase client
+│   ├── demoSupabase.ts        # Offline demo workspace (no backend)
+│   └── requireAuth.tsx        # Route auth guard
+├── src/
+│   ├── api/supabase.ts        # Supabase API helpers
+│   └── services/authService.ts
+├── components/                # Reusable UI (health-gauge, appsidebar, skeleton, themed-*)
+├── hooks/                     # Theme / color-scheme hooks
+├── constants/theme.ts         # Design tokens
+├── assets/
+│   ├── images/                # Icons, splash, favicon
+│   └── demo/sample-products.csv  # Sample data for the CSV-upload demo
+├── app.json                   # Expo configuration
+├── vercel.json                # SPA routing rewrite for Vercel
+└── .env.example               # Environment variable template
+```
 
 ## Current Progress
 
