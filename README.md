@@ -4,6 +4,8 @@ RiskLens is a smart inventory and risk analysis system designed for small and me
 
 The goal of the project is to help businesses understand their stock, expiry risks, product costs, profit potential, and supplier data through a simple and clear dashboard.
 
+**Live demo:** https://risk-lens-rvrs.vercel.app/
+
 ## Project Overview
 
 Food and drink markets deal with many challenges such as expiring products, low stock, pricing issues, and supplier management. RiskLens solves this by allowing users to upload product data and automatically analyze it.
@@ -16,14 +18,13 @@ Instead of manually checking products, the system highlights the most important 
 - One-tap offline **demo workspace** (no backend or API keys required)
 - Product dashboard with an animated **Business Health Score**
 - **RiskLens Copilot** — a conversational AI analyst for your store
-- CSV file upload
-- Required column validation
+- CSV file upload with required-column validation
 - Low stock detection
 - Expiry risk detection
-- Inventory value calculation
-- Profit and margin calculation
+- Inventory value, profit, and margin calculation
 - Supplier tracking
 - AI Pricing Lab, Decision Center, Insights & Waste/Expiry analytics
+- Full English / Albanian localization
 - Clean and mobile-friendly UI
 
 ## Getting Started (Local Setup)
@@ -72,9 +73,11 @@ restock?", "Where are my weak margins?", or "Tell me about the salmon".
 It runs a deterministic reasoning engine **entirely on-device**, so every number
 it reports is computed directly from your real product, alert, and
 recommendation data. That means it works with zero backend and zero API keys.
-If an optional OpenAI API key is provided (`EXPO_PUBLIC_OPENAI_API_KEY`), the
-Copilot will additionally use ChatGPT to phrase its answers more naturally — but
-the underlying figures always stay grounded in the on-device analysis.
+If an optional LLM API key is provided — OpenAI / ChatGPT
+(`EXPO_PUBLIC_OPENAI_API_KEY`) or Groq (`EXPO_PUBLIC_GROQ_API_KEY`) — the Copilot
+will additionally use it to phrase its answers more naturally. The underlying
+figures always stay grounded in the on-device analysis, so the model can never
+invent numbers.
 
 The Business Health Score blends expiry pressure, stock pressure, margin
 quality, and risk into a single 0–100 gauge so an owner can read the state of
@@ -82,16 +85,26 @@ the whole store at a glance.
 
 ## CSV Format
 
-The system requires a CSV file with the following columns:
+Every CSV import must contain these **required** columns:
 
-name,stock_quantity,min_stock_level,cost_price,expiry_date,supplier_name
+```
+name, stock_quantity, min_stock_level, cost_price, expiry_date, supplier_name
+```
+
+Optional columns enrich the analysis: `category`, `sku`, `barcode`,
+`selling_price`, `status`. If `selling_price` is left out, it defaults to
+`cost_price × 1.35`.
 
 Example:
 
-name,stock_quantity,min_stock_level,cost_price,expiry_date,supplier_name  
-Milk 1L,18,15,0.90,2026-04-26,DairyFresh  
-Bread White,9,20,0.50,2026-04-25,Bakery Local  
-Water 1.5L,120,40,0.35,2027-12-31,AquaPure  
+```csv
+name,stock_quantity,min_stock_level,cost_price,selling_price,expiry_date,supplier_name
+Milk 1L,18,15,0.90,1.45,2026-08-26,DairyFresh
+Bread White,9,20,0.50,0.95,2026-08-25,Bakery Local
+Water 1.5L,120,40,0.35,0.70,2027-12-31,AquaPure
+```
+
+A ready-to-use sample lives at `assets/demo/sample-products.csv`.
 
 ## How It Works
 
@@ -105,44 +118,44 @@ The system analyzes each product and highlights risks such as low stock and expi
 
 ## Core Calculations
 
-Inventory Value  
-Inventory Value = Stock Quantity × Cost Price
+```
+Inventory value  = Stock Quantity × Cost Price
+Margin           = Selling Price − Cost Price
+Margin %         = ((Selling Price − Cost Price) / Selling Price) × 100
+Revenue          = Stock Quantity × Selling Price
+Total Profit     = (Selling Price − Cost Price) × Stock Quantity
+Days Left        = Expiry Date − Today
+```
 
-Margin  
-Margin = Selling Price − Cost Price
+**Low stock** is flagged when `Stock Quantity ≤ Minimum Stock Level`
+(or `≤ 10` units when no minimum is set).
 
-Margin Percentage  
-Margin % = ((Selling Price − Cost Price) / Selling Price) × 100
+**Expiry risk** per product:
 
-Revenue  
-Revenue = Stock Quantity × Selling Price
+| Days left | Risk |
+|-----------|------|
+| Expired or ≤ 2 days | High |
+| 3 – 7 days | Medium |
+| More than 7 days | Low / Safe |
 
-Total Profit  
-Total Profit = (Selling Price − Cost Price) × Stock Quantity
-
-Low Stock Logic  
-If Stock Quantity < Minimum Stock Level → Low Stock Risk
-
-Expiry Calculation  
-Days Left = Expiry Date − Today
-
-Risk Levels  
-0–3 days → High Risk  
-4–7 days → Medium Risk  
-More than 7 days → Safe  
+Each product also receives a combined **risk score (0–100)** that blends expiry,
+stock, and margin pressure; a product is flagged **high risk** at 70 or above.
 
 ## Tech Stack
 
-- React Native
-- Expo
-- TypeScript
-- Supabase
-- CSV parsing
-- Dashboard-based UI
+- **React Native + Expo** (Expo Router, file-based navigation) — one codebase for web, iOS, and Android
+- **TypeScript**
+- **Supabase** — authentication and data storage
+- **OpenAI (ChatGPT)** — optional LLM for the Copilot, with **Groq** supported as an alternative
+- **On-device reasoning engine** — powers the Copilot fully offline, with zero keys
+- **PapaParse** — CSV parsing and validation
+- **react-native-reanimated / react-native-svg** — animated Business Health Score and charts
 
 ## Architecture
 
-CSV Upload → Validation → Data Processing → Database → Dashboard → Risk Analysis
+```
+CSV upload / Supabase → Validation → On-device analysis → Dashboard, Health Score, Decisions & Copilot
+```
 
 ## Project Structure
 
@@ -168,7 +181,7 @@ risklens/
 │   ├── aiChat.ts              # OpenAI (ChatGPT) integration, grounded on real data
 │   ├── i18n.tsx               # Internationalization provider
 │   ├── translations.ts        # English / Albanian strings
-│   ├── supabase.ts            # Supabase client
+│   ├── supabase.ts            # Supabase client (real backend + offline demo switch)
 │   ├── demoSupabase.ts        # Offline demo workspace (no backend)
 │   └── requireAuth.tsx        # Route auth guard
 ├── src/
@@ -208,12 +221,12 @@ backend when the `EXPO_PUBLIC_SUPABASE_*` environment variables are provided.
 
 ## Next Steps
 
-- Improve dashboard with charts and analytics
-- Add automatic alerts for expiry and low stock
-- Implement supplier performance tracking
-- Add demand and risk prediction
-- Improve CSV templates and error handling
-- Optimize performance and testing
+- Richer dashboard charts and trend analytics
+- Demand and risk prediction with machine learning
+- Deeper supplier performance scoring
+- A backend proxy so AI keys never ship to the client
+- Improved CSV templates and error handling
+- Automated tests and performance optimization
 
 ## Future Vision
 
