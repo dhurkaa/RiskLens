@@ -6,7 +6,7 @@ export const DEMO_ACCOUNT = {
 
 const DEMO_USER_ID = 'demo-risklens-user';
 const DEMO_SESSION_KEY = 'risklens.demo.session.v1';
-const DEMO_DATA_KEY = 'risklens.demo.data.v3';
+const DEMO_DATA_KEY = 'risklens.demo.data.v4';
 
 type DemoStore = Record<string, any[]>;
 type AuthListener = (event: string, session: any | null) => void;
@@ -170,11 +170,11 @@ function productRows(user_id: string) {
       category: 'Ready Meals',
       sku: 'MEA-CW-001',
       barcode: '100000000002',
-      stock_quantity: 9,
+      stock_quantity: 40,
       min_stock_level: 15,
       cost_price: 2.4,
       selling_price: 4.5,
-      expiry_date: todayPlus(2),
+      expiry_date: todayPlus(60),
       supplier_name: 'FreshBite',
       status: 'active',
       created_at: hoursAgo(90),
@@ -234,11 +234,11 @@ function productRows(user_id: string) {
       category: 'Ready Meals',
       sku: 'MEA-SB-001',
       barcode: '100000000006',
-      stock_quantity: 0,
+      stock_quantity: 25,
       min_stock_level: 10,
       cost_price: 2.2,
       selling_price: 4,
-      expiry_date: todayPlus(3),
+      expiry_date: todayPlus(45),
       supplier_name: 'FreshBite',
       status: 'active',
       created_at: hoursAgo(66),
@@ -282,11 +282,11 @@ function productRows(user_id: string) {
       category: 'Seafood',
       sku: 'SEA-SF-300',
       barcode: '100000000009',
-      stock_quantity: 7,
+      stock_quantity: 20,
       min_stock_level: 9,
       cost_price: 5.5,
       selling_price: 8.9,
-      expiry_date: todayPlus(1),
+      expiry_date: todayPlus(40),
       supplier_name: 'OceanPrime',
       status: 'active',
       created_at: hoursAgo(48),
